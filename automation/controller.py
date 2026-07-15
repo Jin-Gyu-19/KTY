@@ -32,6 +32,14 @@ class _Job:
     error: BaseException | None = None
 
 
+def _is_closed_error(exc: BaseException) -> bool:
+    """브라우저/페이지가 닫혀서 난 오류인지 판별."""
+    return "has been closed" in str(exc).lower()
+
+
+_CLOSED_MSG = "자동화 브라우저가 닫혀 있습니다. [열기]를 다시 눌러 로그인한 뒤 진행해 주세요."
+
+
 class BrowserController:
     def __init__(self) -> None:
         self._jobs: "queue.Queue[_Job | None]" = queue.Queue()
@@ -42,6 +50,8 @@ class BrowserController:
         self._page = None
         # attach 여부는 첫 브라우저 사용 시점(_ensure_context)에서 env 로 판단한다.
         self._attached = False
+        # 컨텍스트 close 이벤트로 갱신되는 플래그(전용창은 browser=None 이라 이걸로 판단)
+        self._context_closed = False
 
     # ---- 워커 스레드 ----
     def _worker(self) -> None:
@@ -96,11 +106,15 @@ class BrowserController:
 
     # ---- 브라우저 조작 (모두 submit 경유) ----
     def _context_alive(self) -> bool:
-        """현재 컨텍스트/브라우저가 살아있는지 확인한다(사용자가 창을 닫았을 수 있음)."""
-        if self._context is None:
+        """현재 컨텍스트가 살아있는지 확인한다(사용자가 창을 닫았을 수 있음).
+
+        전용창(persistent) 컨텍스트는 browser 가 None 이라 연결여부로 판단할 수 없다.
+        그래서 close 이벤트 플래그와 페이지 접근 예외로 판별한다.
+        """
+        if self._context is None or self._context_closed:
             return False
         try:
-            _ = self._context.pages  # 닫힌 컨텍스트면 예외
+            _ = self._context.pages
             br = self._context.browser
             if br is not None and not br.is_connected():
                 return False
@@ -113,6 +127,7 @@ class BrowserController:
         self._context = None
         self._page = None
         self._attached = False
+        self._context_closed = False
 
     def _ensure_context(self):
         # 사용자가 창을 닫아 컨텍스트가 죽었으면 새로 만든다.
@@ -140,6 +155,12 @@ class BrowserController:
                 profile, headless=False, args=["--start-maximized"]
             )
             self._attached = False
+
+        self._context_closed = False
+        try:
+            self._context.on("close", lambda *_a: setattr(self, "_context_closed", True))
+        except Exception:
+            pass
         return self._context
 
     def open_site(self, url: str) -> None:
@@ -150,7 +171,7 @@ class BrowserController:
         launch 모드: 전용 창에서 해당 URL 로 이동한다(사용자가 거기서 로그인).
         """
 
-        def _do():
+        def _open_once():
             ctx = self._ensure_context()
             host = (urlparse(url).hostname or "").lower()
 
@@ -159,7 +180,7 @@ class BrowserController:
                 # 사용자가 미리 열어둔 탭 감지 (같은 호스트)
                 for p in ctx.pages:
                     try:
-                        if host in (p.url or "").lower():
+                        if host in (p.url or "").lower() and not p.is_closed():
                             page = p
                             break
                     except Exception:
@@ -178,21 +199,31 @@ class BrowserController:
             self._page = page
             page.bring_to_front()
 
+        def _do():
+            try:
+                _open_once()
+            except Exception as exc:  # noqa: BLE001
+                # 창이 닫혀 있었으면 새 컨텍스트로 한 번 재시도한다.
+                if _is_closed_error(exc):
+                    self._reset_browser()
+                    _open_once()
+                else:
+                    raise
+
         self.submit(_do)
 
     def run_scenario(self, scenario, employee) -> Any:
         """열려 있는 페이지에서 시나리오를 실행한다."""
 
         def _do():
-            if (
-                self._page is None
-                or self._page.is_closed()
-                or not self._context_alive()
-            ):
-                raise RuntimeError(
-                    "자동화 브라우저가 닫혀 있습니다. [열기]를 다시 눌러 로그인한 뒤 진행해 주세요."
-                )
-            return scenario.run(self._page, employee)
+            if self._page is None or self._page.is_closed() or not self._context_alive():
+                raise RuntimeError(_CLOSED_MSG)
+            try:
+                return scenario.run(self._page, employee)
+            except Exception as exc:  # noqa: BLE001
+                if _is_closed_error(exc):
+                    raise RuntimeError(_CLOSED_MSG)
+                raise
 
         return self.submit(_do)
 
