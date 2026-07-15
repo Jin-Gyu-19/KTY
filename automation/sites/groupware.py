@@ -192,25 +192,28 @@ class GroupwareScenario(SiteScenario):
         try:
             if "adminmain.do" not in (page.url or "").lower():
                 page.goto(ADMIN_MAIN_URL, wait_until="domcontentloaded")
-                page.wait_for_timeout(1000)
         except Exception:
             pass
 
-        # 2) '시스템설정' 타일/메뉴 클릭 → freeb 레이아웃(LNB 트리 + #_content iframe) 로드
+        # 2) '시스템설정' 타일이 눌릴 수 있을 때까지 기다렸다가 '한 번에' 클릭한다.
         #    관리자 메인은 처음에 "상세메뉴를 선택하세요" 빈 화면이라 이걸 눌러야 iframe 이 뜬다.
+        clicked = False
         for sel in (
-            "text=시스템설정",
-            "a:has-text('시스템설정')",
             "[title='시스템설정']",
+            "a:has-text('시스템설정')",
+            "text=시스템설정",
             SYSTEM_GNB_LINK,
         ):
             try:
-                page.locator(sel).first.click(timeout=3000)
-                page.wait_for_timeout(1500)
-                if self._search_ready(page, 4000):
-                    return
+                loc = page.locator(sel).first
+                loc.wait_for(state="visible", timeout=3000)
+                loc.click(timeout=3000)
+                clicked = True
+                break
             except Exception:
                 continue
+        if clicked and self._search_ready(page, 10000):
+            return
 
         # 2b) 클릭이 안 먹으면 시스템설정 진입 함수를 직접 호출 (타일 마크업 몰라도 동작)
         try:
