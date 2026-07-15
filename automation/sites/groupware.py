@@ -72,6 +72,10 @@ POPUP_NAME_XPATH = (
 # 팝업 마법사 버튼
 POPUP_NEXT_BUTTON = "#nextBtn"
 POPUP_FINISH_BUTTON = "#finishBtn"
+# [다음] 클릭 사이 기본 대기(ms). 너무 빨리 누르면 페이지가 버벅여서 넉넉히 둔다.
+STEP_DELAY_MS = 1600
+# 로딩(대기 커서)이 끝날 때까지 추가로 기다리는 최대 시간(ms)
+SETTLE_MAX_MS = 8000
 # 현재 보이는 마법사 단계 id 를 알아내는 스크립트
 _CURRENT_STEP_JS = (
     "() => { const e=[...document.querySelectorAll(\"div[id^='step_div']\")]"
@@ -236,6 +240,24 @@ class GroupwareScenario(SiteScenario):
         except Exception:
             pass
 
+    def _wait_settle(self, popup, max_ms: int = SETTLE_MAX_MS) -> None:
+        """페이지 로딩(ajax)이 끝날 때까지 기다린다.
+
+        더존은 통신 중 html 커서를 'wait' 로 바꾸고 끝나면 'auto' 로 되돌린다.
+        그 커서가 'wait' 인 동안 기다려서, 로딩 중에 [다음]을 누르지 않게 한다.
+        """
+        for _ in range(max(1, max_ms // 300)):
+            try:
+                busy = popup.evaluate(
+                    "() => (document.documentElement.style.cursor === 'wait'"
+                    " || document.body.style.cursor === 'wait')"
+                )
+            except Exception:
+                busy = False
+            if not busy:
+                return
+            popup.wait_for_timeout(300)
+
     def _auto_next(self, popup) -> str:
         """팝업 마법사의 [다음]을 갈 수 있는 데까지 누른다.
 
@@ -265,6 +287,10 @@ class GroupwareScenario(SiteScenario):
             except Exception:
                 return None
 
+        # 팝업 초기 데이터 로딩이 끝날 때까지 잠시 대기
+        popup.wait_for_timeout(800)
+        self._wait_settle(popup)
+
         advanced = 0
         for _ in range(15):
             # 마지막 단계면 완료 버튼이 보인다 → 누르지 않고 멈춤
@@ -283,7 +309,9 @@ class GroupwareScenario(SiteScenario):
                 popup.locator(POPUP_NEXT_BUTTON).click(timeout=3000)
             except Exception:
                 return f"{advanced}단계 진행 후 [다음] 버튼을 찾지 못해 멈췄습니다. 화면을 확인해 주세요."
-            popup.wait_for_timeout(700)  # 단계 전환/데이터 로딩 대기
+            # 단계 전환/데이터 로딩을 넉넉히 기다린다(너무 빨리 다음을 누르면 멈춤).
+            popup.wait_for_timeout(STEP_DELAY_MS)
+            self._wait_settle(popup)
 
             after = _cur_step()
             if state["blocked"] or (after is not None and after == before):
