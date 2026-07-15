@@ -33,6 +33,9 @@ from automation.sites.base import Employee
 
 app = Flask(__name__)
 
+# 앱 시작 시: 이전 세션 작업은 보관함으로 옮기고 빈 화면으로 시작한다.
+state.begin_session()
+
 
 def _scenario_list() -> list[dict]:
     return [
@@ -52,7 +55,25 @@ def _site_ids() -> list[str]:
 
 @app.get("/api/status")
 def api_status():
-    return jsonify({"scenarios": _scenario_list(), "targets": state.snapshot()})
+    return jsonify(
+        {
+            "scenarios": _scenario_list(),
+            "targets": state.snapshot(),
+            "restorable": state.latest_restorable(),
+        }
+    )
+
+
+@app.get("/api/history")
+def api_history():
+    return jsonify({"history": state.list_history()})
+
+
+@app.post("/api/history/restore")
+def api_history_restore():
+    session_id = (request.get_json(force=True, silent=True) or {}).get("id")
+    state.restore(session_id)
+    return jsonify({"targets": state.snapshot()})
 
 
 @app.post("/api/target")

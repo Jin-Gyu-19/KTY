@@ -69,6 +69,7 @@ button:disabled { opacity: .5; cursor: default; }
 .site .actions { display: flex; gap: 8px; }
 
 .section-title { font-size: 15px; margin: 18px 0 8px; }
+.list-head { display: flex; align-items: center; justify-content: space-between; }
 .target-row {
   display: flex;
   align-items: center;

@@ -26,7 +26,9 @@ from datetime import datetime, timezone
 
 _LOCK = threading.Lock()
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-_PATH = os.path.join(_DATA_DIR, "progress.json")
+_PATH = os.path.join(_DATA_DIR, "progress.json")  # 현재 작업 세트
+_HIST = os.path.join(_DATA_DIR, "history.json")  # 지난 작업 보관(최근 처리내용)
+_HIST_MAX = 20
 
 
 def _now() -> str:
@@ -49,6 +51,23 @@ def _save(data: dict) -> None:
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     os.replace(tmp, _PATH)
+
+
+def _load_hist() -> dict:
+    if not os.path.exists(_HIST):
+        return {"sessions": []}
+    with open(_HIST, encoding="utf-8") as f:
+        data = json.load(f)
+    data.setdefault("sessions", [])
+    return data
+
+
+def _save_hist(data: dict) -> None:
+    os.makedirs(_DATA_DIR, exist_ok=True)
+    tmp = _HIST + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, _HIST)
 
 
 def _key(name: str, resign_date: str) -> str:
@@ -150,6 +169,77 @@ def clear_all() -> None:
     """대상자 목록 전체를 비운다."""
     with _LOCK:
         _save({"targets": {}, "active": None})
+
+
+# ----- 작업 보관(최근 처리내용) -----
+def begin_session() -> None:
+    """앱 시작 시 호출. 이전 세션의 작업이 남아 있으면 보관함으로 옮기고,
+    현재 작업 세트는 비운 상태로 시작한다(기본 빈 화면)."""
+    with _LOCK:
+        data = _load()
+        targets = data.get("targets", {})
+        if targets:
+            hist = _load_hist()
+            hist["sessions"].insert(
+                0, {"id": _now(), "saved_at": _now(), "targets": targets}
+            )
+            hist["sessions"] = hist["sessions"][:_HIST_MAX]
+            _save_hist(hist)
+        _save({"targets": {}, "active": None})
+
+
+def latest_restorable() -> dict:
+    """가장 최근 보관 세션 요약(불러오기 팝업용)."""
+    with _LOCK:
+        hist = _load_hist()
+        if not hist["sessions"]:
+            return {"available": False}
+        s = hist["sessions"][0]
+        t = s.get("targets", {})
+        return {
+            "available": bool(t),
+            "id": s["id"],
+            "saved_at": s.get("saved_at", ""),
+            "count": len(t),
+            "names": [v.get("name", "") for v in t.values()],
+        }
+
+
+def list_history() -> list[dict]:
+    """보관된 세션 목록(최근 처리내용 메뉴용)."""
+    with _LOCK:
+        hist = _load_hist()
+        out = []
+        for s in hist["sessions"]:
+            t = s.get("targets", {})
+            out.append(
+                {
+                    "id": s["id"],
+                    "saved_at": s.get("saved_at", ""),
+                    "count": len(t),
+                    "names": [v.get("name", "") for v in t.values()],
+                }
+            )
+        return out
+
+
+def restore(session_id: str | None = None) -> bool:
+    """보관 세션을 현재 작업 세트로 불러온다(없으면 최근 것). 기존 목록에 합친다."""
+    with _LOCK:
+        hist = _load_hist()
+        sess = None
+        if session_id:
+            sess = next((s for s in hist["sessions"] if s["id"] == session_id), None)
+        elif hist["sessions"]:
+            sess = hist["sessions"][0]
+        if not sess:
+            return False
+        data = _load()
+        data["targets"].update(sess.get("targets", {}))
+        if not data.get("active"):
+            data["active"] = _first_key(data["targets"])
+        _save(data)
+        return True
 
 
 def set_site(

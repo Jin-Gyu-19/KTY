@@ -19,11 +19,71 @@ async function api(path, method = "GET", body = null) {
 
 let scenarios = [];
 
+let restorePrompted = false;
+
 async function refresh() {
   const data = await api("/api/status");
   scenarios = data.scenarios;
   renderTargetList(data.targets);
   renderChecklist(data.targets);
+  maybePromptRestore(data.restorable);
+}
+
+// 앱을 열 때 이전 작업이 있으면 한 번 물어본다.
+function maybePromptRestore(r) {
+  if (restorePrompted || !r || !r.available) return;
+  restorePrompted = true;
+  const names = (r.names || []).slice(0, 5).join(", ");
+  const more = r.count > 5 ? " 외" : "";
+  const msg = `이전 작업내용이 있습니다 (${r.count}명: ${names}${more}).\n불러올까요?`;
+  if (confirm(msg)) {
+    api("/api/history/restore", "POST", {})
+      .then(refresh)
+      .catch((e) => alert(e.message));
+  }
+}
+
+async function toggleHistory() {
+  const el = document.getElementById("history");
+  if (el.dataset.open === "1") {
+    el.innerHTML = "";
+    el.dataset.open = "0";
+    return;
+  }
+  let data;
+  try {
+    data = await api("/api/history");
+  } catch (e) {
+    alert(e.message);
+    return;
+  }
+  el.dataset.open = "1";
+  el.innerHTML = "";
+  const list = data.history || [];
+  if (!list.length) {
+    el.innerHTML = '<p class="muted">저장된 최근 처리내용이 없습니다.</p>';
+    return;
+  }
+  list.forEach((s) => {
+    const row = document.createElement("div");
+    row.className = "target-row";
+    const names = (s.names || []).slice(0, 6).join(", ");
+    const info = document.createElement("span");
+    info.innerHTML =
+      `<span class="muted">${(s.saved_at || "").replace("T", " ").slice(0, 16)}</span> · ` +
+      `<b>${s.count}명</b> <span class="muted">${names}${s.count > 6 ? " 외" : ""}</span>`;
+    const b = btn("불러오기", "ghost");
+    b.onclick = () =>
+      run(async () => {
+        const r = await api("/api/history/restore", "POST", { id: s.id });
+        el.dataset.open = "0";
+        el.innerHTML = "";
+        return r;
+      });
+    row.appendChild(info);
+    row.appendChild(b);
+    el.appendChild(row);
+  });
 }
 
 function btn(label, cls) {
@@ -202,5 +262,7 @@ document.getElementById("uploadBtn").onclick = async () => {
     alert(e.message);
   }
 };
+
+document.getElementById("historyBtn").onclick = toggleHistory;
 
 refresh();
