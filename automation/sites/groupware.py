@@ -60,7 +60,8 @@ class GroupwareScenario(SiteScenario):
     id = "groupware"
     name = "더존 그룹웨어"
     kind = "browser"
-    url = "https://gw.bdo.kr/gw/adminMain.do"
+    # 이 그룹웨어는 http 로 서비스된다(HTML 내 http://gw.bdo.kr 확인). https 는 연결 거부됨.
+    url = "http://gw.bdo.kr/gw/adminMain.do"
     login_required = True
     # 팝업 마법사(대체자 지정 등)는 사람이 판단해야 하므로 자동 완료하지 않는다.
     auto_submit = False

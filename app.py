@@ -17,6 +17,14 @@
 
 from __future__ import annotations
 
+# .env 를 먼저 읽어야 M365_*, BROWSER_CDP_URL 등이 반영된다.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:
+    pass
+
 from flask import Flask, jsonify, render_template, request
 
 from automation import registry, state

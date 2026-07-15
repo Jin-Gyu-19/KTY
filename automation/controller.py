@@ -4,16 +4,24 @@ Playwright 동기 API 객체는 스레드에 묶여 있어서, 브라우저 관�
 '단일 워커 스레드' 안에서만 실행해야 한다. Flask 는 여러 요청을 여러 스레드로
 처리하므로, 요청 스레드는 여기 submit() 으로 작업을 워커에 넘기고 결과만 받는다.
 
-한 번에 사이트 하나만 다룬다(퇴사 처리는 순차 진행이므로 충분).
-사용자가 브라우저에서 직접 로그인할 수 있도록 headed 모드로 띄운다.
+두 가지 브라우저 모드를 지원한다:
+  1) launch(기본)  : Playwright 전용 크로미움 창을 새로 띄운다. 사용자가 그 창에서
+                     직접 로그인한다. 세션은 data/.browser 프로필에 유지된다.
+  2) attach        : 환경변수 BROWSER_CDP_URL(예: http://127.0.0.1:9222)이 있으면
+                     이미 실행 중인(사용자가 로그인해 둔) 크롬/엣지에 붙는다.
+                     사용자가 미리 열어 로그인한 탭을 그대로 감지해서 조작한다.
+                     엣지에서:
+                       msedge.exe --remote-debugging-port=9222 --user-data-dir="C:\\edge-debug"
 """
 
 from __future__ import annotations
 
+import os
 import queue
 import threading
 from dataclasses import dataclass
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 
 @dataclass
@@ -29,8 +37,11 @@ class BrowserController:
         self._jobs: "queue.Queue[_Job | None]" = queue.Queue()
         self._thread: threading.Thread | None = None
         self._pw = None
+        self._browser = None
         self._context = None
         self._page = None
+        # attach 여부는 첫 브라우저 사용 시점(_ensure_context)에서 env 로 판단한다.
+        self._attached = False
 
     # ---- 워커 스레드 ----
     def _worker(self) -> None:
@@ -49,7 +60,8 @@ class BrowserController:
                 finally:
                     job.done.set()
         finally:
-            if self._context is not None:
+            # attach 모드에서는 사용자의 브라우저이므로 컨텍스트를 닫지 않는다.
+            if self._context is not None and not self._attached:
                 try:
                     self._context.close()
                 except Exception:
@@ -77,15 +89,27 @@ class BrowserController:
             self._jobs.put(None)
             self._thread.join(timeout=10)
         self._thread = None
+        self._browser = None
         self._context = None
         self._page = None
+        self._attached = False
 
     # ---- 브라우저 조작 (모두 submit 경유) ----
     def _ensure_context(self):
-        if self._context is None:
-            # persistent context: 쿠키/세션이 data/.browser 에 남아 재로그인 부담을 줄인다.
-            import os
+        if self._context is not None:
+            return self._context
 
+        cdp_url = os.environ.get("BROWSER_CDP_URL", "").strip()
+        if cdp_url:
+            # attach 모드: 이미 떠 있는 크롬/엣지에 붙어 로그인 세션을 재사용한다.
+            self._browser = self._pw.chromium.connect_over_cdp(cdp_url)
+            if self._browser.contexts:
+                self._context = self._browser.contexts[0]
+            else:
+                self._context = self._browser.new_context()
+            self._attached = True
+        else:
+            # launch 모드: 전용 크로미움 창. 세션은 data/.browser 에 유지.
             profile = os.path.join(
                 os.path.dirname(os.path.dirname(__file__)), "data", ".browser"
             )
@@ -93,16 +117,44 @@ class BrowserController:
             self._context = self._pw.chromium.launch_persistent_context(
                 profile, headless=False, args=["--start-maximized"]
             )
+            self._attached = False
         return self._context
 
     def open_site(self, url: str) -> None:
-        """사이트를 새 창(페이지)으로 연다. 사용자는 여기서 직접 로그인한다."""
+        """사이트를 연다.
+
+        attach 모드: 같은 호스트로 이미 열려 있는(로그인된) 탭이 있으면 그 탭을
+                     그대로 감지해서 사용한다. 없으면 새 탭을 열어 이동한다.
+        launch 모드: 전용 창에서 해당 URL 로 이동한다(사용자가 거기서 로그인).
+        """
 
         def _do():
             ctx = self._ensure_context()
-            self._page = ctx.pages[0] if ctx.pages else ctx.new_page()
-            self._page.goto(url, wait_until="domcontentloaded")
-            self._page.bring_to_front()
+            host = (urlparse(url).hostname or "").lower()
+
+            page = None
+            if self._attached and host:
+                # 사용자가 미리 열어둔 탭 감지 (같은 호스트)
+                for p in ctx.pages:
+                    try:
+                        if host in (p.url or "").lower():
+                            page = p
+                            break
+                    except Exception:
+                        continue
+
+            if page is None:
+                if self._attached:
+                    # 붙은 브라우저에는 새 탭을 열어 이동 (기존 탭은 건드리지 않음)
+                    page = ctx.new_page()
+                    page.goto(url, wait_until="domcontentloaded")
+                else:
+                    # 전용 창: 초기 빈 탭 재사용
+                    page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                    page.goto(url, wait_until="domcontentloaded")
+
+            self._page = page
+            page.bring_to_front()
 
         self.submit(_do)
 
