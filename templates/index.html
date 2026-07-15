@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>퇴사자 처리 자동화</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <main>
+    <h1>퇴사자 처리 자동화</h1>
+
+    <section class="card">
+      <div class="row">
+        <label>이름
+          <input id="name" type="text" placeholder="홍길동" />
+        </label>
+        <label>퇴사일
+          <input id="resign_date" type="date" />
+        </label>
+        <button id="startBtn">시작</button>
+      </div>
+      <p id="current" class="muted"></p>
+    </section>
+
+    <section id="checklist"></section>
+  </main>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
