@@ -131,8 +131,21 @@ class GroupwareScenario(SiteScenario):
         except Exception:
             pass
         try:
-            if page.locator("input[type=password]").count() > 0:
-                parts.append("※비밀번호칸 보임→자동화 창이 로그인 안 됐을 수 있음")
+            if page.locator("input[type=password]:visible").count() > 0:
+                parts.append("※보이는 비밀번호칸 있음→자동화 창이 로그인 안 됐을 수 있음")
+        except Exception:
+            pass
+        # '시스템설정' 요소의 실제 마크업(태그/onclick/href)을 찾아 알려준다
+        try:
+            found = page.evaluate(
+                "() => { const out=[]; for (const e of document.querySelectorAll('a,button,li,div,span')) {"
+                " const t=(e.textContent||'').trim();"
+                " if (t==='시스템설정' || t.startsWith('시스템설정')) {"
+                " out.push(e.tagName+'#'+(e.id||'')+' onclick='+(e.getAttribute('onclick')||'')+' href='+(e.getAttribute('href')||''));"
+                " if(out.length>=4) break; } } return out; }"
+            )
+            if found:
+                parts.append("시스템설정요소=" + " || ".join(found))
         except Exception:
             pass
         text = " / ".join(parts)
@@ -181,13 +194,29 @@ class GroupwareScenario(SiteScenario):
 
         # 2) '시스템설정' 타일/메뉴 클릭 → freeb 레이아웃(LNB 트리 + #_content iframe) 로드
         #    관리자 메인은 처음에 "상세메뉴를 선택하세요" 빈 화면이라 이걸 눌러야 iframe 이 뜬다.
-        for sel in ("text=시스템설정", "a:has-text('시스템설정')", SYSTEM_GNB_LINK):
+        for sel in (
+            "text=시스템설정",
+            "a:has-text('시스템설정')",
+            "[title='시스템설정']",
+            SYSTEM_GNB_LINK,
+        ):
             try:
                 page.locator(sel).first.click(timeout=3000)
                 page.wait_for_timeout(1500)
-                break
+                if self._search_ready(page, 4000):
+                    return
             except Exception:
                 continue
+
+        # 2b) 클릭이 안 먹으면 시스템설정 진입 함수를 직접 호출 (타일 마크업 몰라도 동작)
+        try:
+            page.evaluate(
+                "() => { try { onclickTopCustomMenu(900000000,'시스템설정','','gw','','N'); }"
+                " catch(e){ try { menu.clickTopBtn('900000000','시스템설정','','gw'); } catch(e2){} } }"
+            )
+            page.wait_for_timeout(1800)
+        except Exception:
+            pass
         if self._search_ready(page, 6000):
             return
 
