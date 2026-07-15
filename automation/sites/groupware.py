@@ -39,7 +39,14 @@
 
 from __future__ import annotations
 
+import os
+
 from .base import Employee, SiteScenario, StepResult
+
+# 진단 스크린샷 저장 위치 (프로젝트/data)
+_DATA_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data"
+)
 
 # 왼쪽 LNB 트리에서 '사원정보관리' 메뉴 앵커
 EMP_MANAGE_ANCHOR = "#902010000_anchor"
@@ -82,15 +89,60 @@ class GroupwareScenario(SiteScenario):
     # 팝업 마법사(대체자 지정 등)는 사람이 판단해야 하므로 자동 완료하지 않는다.
     auto_submit = False
 
+    def _find_emp_frame(self, page):
+        """모든 프레임을 뒤져 사원 검색창이 있는 프레임(Frame)을 반환한다."""
+        for fr in page.frames:
+            try:
+                if fr.locator(SEARCH_INPUT).count() > 0:
+                    return fr
+            except Exception:
+                continue
+        return None
+
+    def _wait_emp_frame(self, page, timeout_ms: int):
+        """검색창이 있는 프레임이 나타날 때까지(최대 timeout) 기다린다."""
+        for _ in range(max(1, timeout_ms // 500)):
+            fr = self._find_emp_frame(page)
+            if fr is not None:
+                return fr
+            page.wait_for_timeout(500)
+        return None
+
     def _search_ready(self, page, timeout: int) -> bool:
-        """iframe 안에 사원 검색창이 떴는지 확인한다."""
+        """사원 검색창이 어느 프레임에든 떴는지 확인한다."""
+        return self._wait_emp_frame(page, timeout) is not None
+
+    def _diagnose(self, page) -> str:
+        """실패 시 현재 화면 상태를 문자열로 요약하고 스크린샷을 저장한다."""
+        parts = []
         try:
-            page.frame_locator(CONTENT_IFRAME).locator(SEARCH_INPUT).wait_for(
-                state="visible", timeout=timeout
-            )
-            return True
+            parts.append(f"주소={page.url}")
         except Exception:
-            return False
+            pass
+        try:
+            parts.append(f"제목='{page.title()}'")
+        except Exception:
+            pass
+        try:
+            frs = []
+            for fr in page.frames:
+                frs.append(f"{fr.name or '(무명)'}:{(fr.url or '')[:70]}")
+            parts.append("프레임=[" + " | ".join(frs) + "]")
+        except Exception:
+            pass
+        try:
+            if page.locator("input[type=password]").count() > 0:
+                parts.append("※비밀번호칸 보임→자동화 창이 로그인 안 됐을 수 있음")
+        except Exception:
+            pass
+        try:
+            os.makedirs(_DATA_DIR, exist_ok=True)
+            shot = os.path.join(_DATA_DIR, "last_error.png")
+            page.screenshot(path=shot, full_page=True)
+            parts.append(f"스크린샷={shot}")
+        except Exception:
+            pass
+        return " / ".join(parts)
 
     def _ensure_admin_emp(self, page) -> None:
         """관리자 모드의 '사원정보관리' 화면(iframe)을 확실히 로드한다.
@@ -198,26 +250,25 @@ class GroupwareScenario(SiteScenario):
         # ----- 2) 관리자 모드 + 사원정보관리 자동 이동 -----
         self._ensure_admin_emp(page)
 
-        frame = page.frame_locator(CONTENT_IFRAME)
-
-        # ----- 3) 이름 검색 -----
-        search = frame.locator(SEARCH_INPUT)
-        try:
-            search.wait_for(state="visible", timeout=15000)
-        except Exception:
-            cur = ""
-            try:
-                cur = page.url
-            except Exception:
-                pass
+        # ----- 3) 검색창이 있는 프레임 찾기 (iframe 구조가 달라도 대응) -----
+        frame = self._wait_emp_frame(page, 15000)
+        if frame is None:
             return StepResult(
                 ok=False,
                 message=(
-                    "사원정보관리 화면(iframe)을 찾지 못했습니다. "
-                    f"(현재 주소: {cur}) 관리자로 로그인된 상태인지 확인하고, "
-                    "안 되면 브라우저에서 '시스템설정 > 사원관리 > 사원정보관리'를 직접 한 번 연 뒤 다시 [자동 처리] 해주세요."
+                    "사원정보관리 화면(검색창)을 찾지 못했습니다. "
+                    "관리자로 로그인된 상태인지 확인하고, 안 되면 브라우저에서 "
+                    "'시스템설정 > 사원관리 > 사원정보관리'를 직접 연 뒤 다시 [자동 처리] 해주세요. "
+                    "── 진단: " + self._diagnose(page)
                 ),
             )
+
+        # ----- 이름 검색 -----
+        search = frame.locator(SEARCH_INPUT)
+        try:
+            search.wait_for(state="visible", timeout=8000)
+        except Exception:
+            pass
         search.fill(employee.name)
         frame.locator(SEARCH_BUTTON).click()
 
