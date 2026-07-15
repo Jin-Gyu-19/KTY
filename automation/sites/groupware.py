@@ -135,14 +135,30 @@ class GroupwareScenario(SiteScenario):
                 parts.append("※비밀번호칸 보임→자동화 창이 로그인 안 됐을 수 있음")
         except Exception:
             pass
+        text = " / ".join(parts)
         try:
             os.makedirs(_DATA_DIR, exist_ok=True)
-            shot = os.path.join(_DATA_DIR, "last_error.png")
-            page.screenshot(path=shot, full_page=True)
-            parts.append(f"스크린샷={shot}")
         except Exception:
             pass
-        return " / ".join(parts)
+        # 스크린샷: full_page 실패하면 일반 방식으로 재시도
+        shot = os.path.join(_DATA_DIR, "last_error.png")
+        saved = False
+        for kwargs in ({"full_page": True}, {}):
+            try:
+                page.screenshot(path=shot, **kwargs)
+                saved = True
+                break
+            except Exception:
+                continue
+        if saved:
+            text += f" / 스크린샷={shot}"
+        # 텍스트 로그도 항상 저장 (UI 에서 잘려도 파일로 확인 가능)
+        try:
+            with open(os.path.join(_DATA_DIR, "last_error.txt"), "w", encoding="utf-8") as f:
+                f.write(text + "\n")
+        except Exception:
+            pass
+        return text
 
     def _ensure_admin_emp(self, page) -> None:
         """관리자 모드의 '사원정보관리' 화면(iframe)을 확실히 로드한다.
@@ -247,6 +263,18 @@ class GroupwareScenario(SiteScenario):
         return f"{advanced}단계 자동 진행했습니다. 나머지는 직접 확인해 주세요."
 
     def run(self, page, employee: Employee) -> StepResult:
+        # 어떤 예외가 나도 진단(스크린샷/로그)을 남기고 메시지로 돌려준다.
+        try:
+            return self._run_inner(page, employee)
+        except Exception as exc:  # noqa: BLE001
+            if "has been closed" in str(exc).lower():
+                raise  # 브라우저 닫힘은 컨트롤러가 친절 메시지로 처리
+            diag = self._diagnose(page)
+            return StepResult(
+                ok=False, message=f"처리 중 오류: {exc} ── 진단: {diag}"
+            )
+
+    def _run_inner(self, page, employee: Employee) -> StepResult:
         # ----- 2) 관리자 모드 + 사원정보관리 자동 이동 -----
         self._ensure_admin_emp(page)
 
