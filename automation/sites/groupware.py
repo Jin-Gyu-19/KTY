@@ -195,9 +195,30 @@ class GroupwareScenario(SiteScenario):
         except Exception:
             pass
 
-        # 2) '시스템설정' 타일이 눌릴 수 있을 때까지 기다렸다가 '한 번에' 클릭한다.
+        # 2) 시스템설정 진입.
+        #    타일 클릭이 타이밍을 타서 반응 없을 때가 있어, '진입 함수 직접 호출'을 우선 쓴다.
         #    관리자 메인은 처음에 "상세메뉴를 선택하세요" 빈 화면이라 이걸 눌러야 iframe 이 뜬다.
-        clicked = False
+        try:
+            page.locator("text=시스템설정").first.wait_for(state="visible", timeout=6000)
+        except Exception:
+            pass
+        page.wait_for_timeout(400)  # 페이지 스크립트/핸들러 바인딩 여유
+
+        entered = False
+        try:
+            entered = bool(
+                page.evaluate(
+                    "() => { try { onclickTopCustomMenu(900000000,'시스템설정','','gw','','N');"
+                    " return true; } catch(e){ try { menu.clickTopBtn('900000000','시스템설정','','gw');"
+                    " return true; } catch(e2){ return false; } } }"
+                )
+            )
+        except Exception:
+            entered = False
+        if entered and self._search_ready(page, 10000):
+            return
+
+        # 2b) 함수 호출이 안 되면 실제 타일 클릭으로 폴백
         for sel in (
             "[title='시스템설정']",
             "a:has-text('시스템설정')",
@@ -206,26 +227,12 @@ class GroupwareScenario(SiteScenario):
         ):
             try:
                 loc = page.locator(sel).first
-                loc.wait_for(state="visible", timeout=3000)
-                loc.click(timeout=3000)
-                clicked = True
-                break
+                loc.wait_for(state="visible", timeout=2500)
+                loc.click(timeout=2500)
+                if self._search_ready(page, 8000):
+                    return
             except Exception:
                 continue
-        if clicked and self._search_ready(page, 10000):
-            return
-
-        # 2b) 클릭이 안 먹으면 시스템설정 진입 함수를 직접 호출 (타일 마크업 몰라도 동작)
-        try:
-            page.evaluate(
-                "() => { try { onclickTopCustomMenu(900000000,'시스템설정','','gw','','N'); }"
-                " catch(e){ try { menu.clickTopBtn('900000000','시스템설정','','gw'); } catch(e2){} } }"
-            )
-            page.wait_for_timeout(1800)
-        except Exception:
-            pass
-        if self._search_ready(page, 6000):
-            return
 
         # 3) 그래도 검색창이 없으면 iframe 을 사원정보관리로 직접 이동
         try:
