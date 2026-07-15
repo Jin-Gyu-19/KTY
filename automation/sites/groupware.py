@@ -15,16 +15,24 @@
             /gw/cmm/systemx/empResignPop.do 로 사원정보를 넘긴다.
       · 기본 재직여부 필터 = '재직'(999) 이므로 퇴사 대상(재직자)이 검색된다.
 
-처리 순서:
+★ 퇴사처리 팝업(empResignPop.do)의 실제 동작(HTML 확인 완료):
+  - 8단계 마법사: 퇴사일 > 메일정보 > 부서정보 > 필수결재라인 >
+                  결재문서처리 > 문서함 권한 > 게시함 권한 > 메신저
+  - 퇴사일(#out_date): 열자마자 disabled 되고 '오늘'로 자동 세팅된다.
+      미래 날짜는 "예약 퇴사처리는 불가합니다" 로 막힌다.
+      → 즉 퇴사일은 사용자가 지정하는 값이 아니라 '처리하는 당일'로 고정.
+  - 중간 단계에서 미결 결재/문서함/게시판의 '대체자(후임자)'를 사람이 지정해야 한다.
+      이는 사람마다 다르고 판단이 필요하므로 자동화 대상이 아니다.
+  - 최종 '완료'(#finishBtn → ok()) 시 confirm 후 empResignProcFinish.do 로 확정.
+
+따라서 자동화 범위(안전):
   1) 로그인은 사용자가 직접 (관리자 모드, '시스템설정' 진입 상태)
-  2) 사원정보관리 진입 → iframe 로드
+  2) 사원정보관리 진입
   3) 이름으로 검색
   4) 결과 행 선택 (동명이인 없음. 결과가 정확히 1건이 아니면 안전상 중단)
   5) 퇴사처리 클릭 → 팝업창 열림
-  6) 팝업에서 퇴사일 입력 → (auto_submit=False) 저장 직전 멈춤
-
-⚠️ 6단계(퇴사일 입력)는 팝업(empResignPop.do)의 HTML 을 받아야 채울 수 있다.
-    지금은 팝업을 여는 데까지 자동화하고, 퇴사일 입력·저장은 사람이 마무리한다.
+  6) 팝업의 '이름'이 입력한 대상과 일치하는지 대조(안전 확인)
+  7) 여기서 멈춤 → 퇴사일 확인·대체자 지정·완료는 사람이 마무리
 """
 
 from __future__ import annotations
@@ -41,6 +49,11 @@ SEARCH_BUTTON = "#searchButton"
 GRID_ROW = "#grid .k-grid-content tr[role='row']"
 SELECTED_ROW = "#grid .k-grid-content tr.k-state-selected"
 RETIRE_BUTTON = "#retireEmp"
+# 팝업 상단 대상정보 표의 '이름' 값 (안전 대조용)
+POPUP_NAME_XPATH = (
+    "xpath=//div[contains(@class,'com_ta')]"
+    "//th[normalize-space()='이름']/following-sibling::td[1]"
+)
 
 
 class GroupwareScenario(SiteScenario):
@@ -49,7 +62,8 @@ class GroupwareScenario(SiteScenario):
     kind = "browser"
     url = "https://gw.bdo.kr/gw/adminMain.do"
     login_required = True
-    auto_submit = False  # 팝업의 저장은 사람이 최종 확인 후 직접
+    # 팝업 마법사(대체자 지정 등)는 사람이 판단해야 하므로 자동 완료하지 않는다.
+    auto_submit = False
 
     def run(self, page, employee: Employee) -> StepResult:
         # ----- 2) 사원정보관리 진입 → iframe -----
@@ -126,18 +140,35 @@ class GroupwareScenario(SiteScenario):
 
         popup.wait_for_load_state("domcontentloaded")
         popup.bring_to_front()
-        # 이후 팝업에서 퇴사일 입력을 자동화하려면 이 참조를 사용한다.
         self._resign_popup = popup
 
-        # ----- 6) 팝업에서 퇴사일 입력 (TODO: empResignPop.do HTML 필요) -----
-        # popup.get_by_label("퇴사일").fill(employee.resign_date)  # 예시
+        # ----- 6) 팝업 대상 이름 대조 (엉뚱한 사람 방지) -----
+        name_in_popup = ""
+        try:
+            name_in_popup = popup.locator(POPUP_NAME_XPATH).first.inner_text(
+                timeout=5000
+            ).strip()
+        except Exception:
+            name_in_popup = ""
 
+        if name_in_popup and name_in_popup != employee.name:
+            return StepResult(
+                ok=False,
+                message=(
+                    f"⚠️ 팝업의 대상('{name_in_popup}')이 입력한 이름('{employee.name}')과 "
+                    "다릅니다. 자동 진행을 멈췄습니다. 팝업을 닫고 다시 확인해 주세요."
+                ),
+            )
+
+        # ----- 7) 여기서 멈춤 (마법사는 사람이 마무리) -----
+        who = f"{name_in_popup or employee.name}"
         return StepResult(
             ok=True,
             awaiting=True,
             message=(
-                f"'{employee.name}' 선택 후 퇴사처리 팝업을 열었습니다. "
-                "팝업에서 퇴사일 입력·저장을 완료해 주세요. "
-                "(팝업 HTML을 주면 퇴사일 입력까지 자동화됩니다.)"
+                f"'{who}' 퇴사처리 팝업을 열었습니다(대상 확인 완료). "
+                "더존 퇴사일은 '오늘'로 자동 지정되며(미래 예약 불가), "
+                "미결 결재·문서함 등 대체자 지정은 판단이 필요해 자동화하지 않습니다. "
+                "팝업에서 [다음]으로 진행하며 대체자를 지정하고 [완료]로 마무리해 주세요."
             ),
         )
