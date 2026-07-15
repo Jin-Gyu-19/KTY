@@ -22,23 +22,87 @@ let scenarios = [];
 async function refresh() {
   const data = await api("/api/status");
   scenarios = data.scenarios;
-  render(data.current);
+  renderTargetList(data.targets);
+  renderChecklist(data.targets);
 }
 
-function render(current) {
-  const curEl = document.getElementById("current");
-  const listEl = document.getElementById("checklist");
+function btn(label, cls) {
+  const b = document.createElement("button");
+  b.textContent = label;
+  if (cls) b.className = cls;
+  return b;
+}
 
-  if (!current) {
-    curEl.textContent = "퇴사자 정보를 입력하고 [시작]을 누르세요.";
+function progressText(sites) {
+  const ids = scenarios.map((s) => s.id);
+  const total = ids.length;
+  const done = ids.filter((id) => (sites[id] || {}).status === "done").length;
+  const hasErr = ids.some((id) => (sites[id] || {}).status === "error");
+  const hasWait = ids.some((id) =>
+    ["awaiting", "in_progress"].includes((sites[id] || {}).status)
+  );
+  let mark = "";
+  if (done === total) mark = "✅";
+  else if (hasErr) mark = "⚠️";
+  else if (hasWait) mark = "…";
+  return `${done}/${total} ${mark}`;
+}
+
+// ----- 대상자 목록 -----
+function renderTargetList(t) {
+  const el = document.getElementById("targetList");
+  el.innerHTML = "";
+  const list = (t && t.targets) || [];
+  if (!list.length) {
+    el.innerHTML = '<p class="muted">대상자를 추가하거나 엑셀을 올려주세요.</p>';
+    return;
+  }
+  list.forEach((tg) => {
+    const row = document.createElement("div");
+    row.className = "target-row" + (tg.key === t.active ? " active" : "");
+
+    const info = document.createElement("span");
+    info.innerHTML =
+      `<b>${tg.name}</b> <span class="muted">${tg.resign_date || ""}</span>` +
+      ` &nbsp;<span class="tag">${progressText(tg.sites || {})}</span>`;
+
+    const actions = document.createElement("span");
+    actions.className = "target-actions";
+
+    const selBtn = btn(tg.key === t.active ? "선택됨" : "선택", "ghost");
+    selBtn.disabled = tg.key === t.active;
+    selBtn.onclick = () => run(() => api("/api/target/active", "POST", { key: tg.key }));
+
+    const delBtn = btn("삭제", "ghost");
+    delBtn.onclick = () => {
+      if (confirm(`'${tg.name}' 을(를) 목록에서 삭제할까요?`))
+        run(() => api("/api/target/remove", "POST", { key: tg.key }));
+    };
+
+    actions.appendChild(selBtn);
+    actions.appendChild(delBtn);
+    row.appendChild(info);
+    row.appendChild(actions);
+    el.appendChild(row);
+  });
+}
+
+// ----- 활성 대상자의 사이트 체크리스트 -----
+function renderChecklist(t) {
+  const titleEl = document.getElementById("activeTitle");
+  const listEl = document.getElementById("checklist");
+  const active = (t.targets || []).find((x) => x.key === t.active);
+
+  if (!active) {
+    titleEl.textContent = "";
     listEl.innerHTML = "";
     return;
   }
-  curEl.textContent = `대상: ${current.name} · 퇴사일 ${current.resign_date}`;
-
+  titleEl.textContent = `처리 중: ${active.name} · 퇴사일 ${active.resign_date}`;
   listEl.innerHTML = "";
+
   scenarios.forEach((s, i) => {
-    const site = current.sites[s.id] || { status: "pending", message: "" };
+    const site = active.sites[s.id] || { status: "pending", message: "" };
     const row = document.createElement("div");
     row.className = "site";
 
@@ -80,13 +144,6 @@ function render(current) {
   });
 }
 
-function btn(label, cls) {
-  const b = document.createElement("button");
-  b.textContent = label;
-  if (cls) b.className = cls;
-  return b;
-}
-
 async function run(fn) {
   try {
     const r = await fn();
@@ -96,6 +153,19 @@ async function run(fn) {
   }
   await refresh();
 }
+
+// ----- 입력 핸들러 -----
+document.getElementById("addBtn").onclick = async () => {
+  const name = document.getElementById("name").value.trim();
+  const resign_date = document.getElementById("resign_date").value.trim();
+  try {
+    await api("/api/target", "POST", { name, resign_date });
+    document.getElementById("name").value = "";
+    await refresh();
+  } catch (e) {
+    alert(e.message);
+  }
+};
 
 document.getElementById("uploadBtn").onclick = async () => {
   const fileEl = document.getElementById("excel");
@@ -109,50 +179,7 @@ document.getElementById("uploadBtn").onclick = async () => {
     const res = await fetch("/api/target/excel", { method: "POST", body: fd });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "업로드 실패");
-    renderTargets(data.targets);
-  } catch (e) {
-    alert(e.message);
-  }
-};
-
-function renderTargets(targets) {
-  const el = document.getElementById("targets");
-  el.innerHTML = "";
-  if (!targets || !targets.length) return;
-
-  const title = document.createElement("div");
-  title.className = "muted";
-  title.style.margin = "6px 0";
-  title.textContent = `엑셀에서 ${targets.length}명 불러옴 — 처리할 대상을 선택하세요:`;
-  el.appendChild(title);
-
-  targets.forEach((t) => {
-    const row = document.createElement("div");
-    row.className = "target-row";
-    const info = document.createElement("span");
-    info.innerHTML = `<b>${t.name}</b> <span class="muted">${t.resign_date || "(퇴사일 없음)"}</span>`;
-    const b = btn("선택", "ghost");
-    b.onclick = async () => {
-      document.getElementById("name").value = t.name;
-      document.getElementById("resign_date").value = t.resign_date || "";
-      try {
-        await api("/api/target", "POST", { name: t.name, resign_date: t.resign_date });
-        await refresh();
-      } catch (e) {
-        alert(e.message);
-      }
-    };
-    row.appendChild(info);
-    row.appendChild(b);
-    el.appendChild(row);
-  });
-}
-
-document.getElementById("startBtn").onclick = async () => {
-  const name = document.getElementById("name").value.trim();
-  const resign_date = document.getElementById("resign_date").value.trim();
-  try {
-    await api("/api/target", "POST", { name, resign_date });
+    fileEl.value = "";
     await refresh();
   } catch (e) {
     alert(e.message);

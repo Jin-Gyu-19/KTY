@@ -46,21 +46,40 @@ def index():
     return render_template("index.html")
 
 
+def _site_ids() -> list[str]:
+    return [s.id for s in registry.all_scenarios()]
+
+
 @app.get("/api/status")
 def api_status():
-    return jsonify({"scenarios": _scenario_list(), "current": state.current()})
+    return jsonify({"scenarios": _scenario_list(), "targets": state.snapshot()})
 
 
 @app.post("/api/target")
 def api_target():
+    """대상자 1명 추가(수동). 추가한 사람을 활성 대상으로 만든다."""
     data = request.get_json(force=True)
     name = (data.get("name") or "").strip()
     resign_date = (data.get("resign_date") or "").strip()
     if not name or not resign_date:
         return jsonify({"error": "이름과 퇴사일을 모두 입력하세요."}), 400
-    site_ids = [s.id for s in registry.all_scenarios()]
-    entry = state.start_target(name, resign_date, site_ids)
-    return jsonify({"current": entry})
+    state.add_target(name, resign_date, _site_ids(), make_active=True)
+    return jsonify({"targets": state.snapshot()})
+
+
+@app.post("/api/target/active")
+def api_target_active():
+    key = (request.get_json(force=True).get("key") or "").strip()
+    if not state.set_active(key):
+        return jsonify({"error": "대상을 찾지 못했습니다."}), 404
+    return jsonify({"targets": state.snapshot()})
+
+
+@app.post("/api/target/remove")
+def api_target_remove():
+    key = (request.get_json(force=True).get("key") or "").strip()
+    state.remove_target(key)
+    return jsonify({"targets": state.snapshot()})
 
 
 def _fmt_date(v) -> str:
@@ -131,11 +150,16 @@ def api_target_excel():
         return jsonify({"error": f"엑셀을 읽지 못했습니다: {exc}"}), 400
     if not targets:
         return jsonify({"error": "대상자를 찾지 못했습니다. (이름/퇴사일 열을 확인해 주세요)"}), 400
-    return jsonify({"targets": targets})
+    # 파싱한 대상자 전원을 목록에 추가한다(활성은 기존 유지 or 첫 대상).
+    site_ids = _site_ids()
+    for t in targets:
+        if t.get("resign_date"):
+            state.add_target(t["name"], t["resign_date"], site_ids)
+    return jsonify({"targets": state.snapshot(), "added": len(targets)})
 
 
 def _current_employee() -> Employee | None:
-    cur = state.current()
+    cur = state.active_entry()
     if not cur:
         return None
     return Employee(name=cur["name"], resign_date=cur["resign_date"])

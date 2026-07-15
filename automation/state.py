@@ -1,7 +1,13 @@
-"""퇴사 처리 진행상태 저장.
+"""퇴사 처리 진행상태 저장 (여러 명 동시 관리).
 
 중간에 앱이 꺼져도 이어서 할 수 있도록 data/progress.json 에 기록한다.
 동명이인이 없으므로 '이름|퇴사일' 을 대상 키로 쓴다.
+
+저장 구조:
+  {
+    "targets": { "이형진|2026-07-15": {name, resign_date, created_at, sites{}}, ... },
+    "active":  "이형진|2026-07-15"     # 현재 작업 중인 대상 키
+  }
 
 사이트별 상태값:
   pending     대기
@@ -29,9 +35,12 @@ def _now() -> str:
 
 def _load() -> dict:
     if not os.path.exists(_PATH):
-        return {}
+        return {"targets": {}, "active": None}
     with open(_PATH, encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+    data.setdefault("targets", {})
+    data.setdefault("active", None)
+    return data
 
 
 def _save(data: dict) -> None:
@@ -46,12 +55,19 @@ def _key(name: str, resign_date: str) -> str:
     return f"{name}|{resign_date}"
 
 
-def start_target(name: str, resign_date: str, site_ids: list[str]) -> dict:
-    """퇴사자 처리를 시작(또는 이어하기)한다. 현재 대상의 상태를 돌려준다."""
+def _first_key(targets: dict) -> str | None:
+    return next(iter(targets), None)
+
+
+def add_target(
+    name: str, resign_date: str, site_ids: list[str], make_active: bool = False
+) -> dict:
+    """대상자를 추가(또는 갱신)한다. 이미 있으면 사이트 목록만 동기화한다."""
     with _LOCK:
         data = _load()
+        targets = data["targets"]
         key = _key(name, resign_date)
-        entry = data.get(key)
+        entry = targets.get(key)
         if entry is None:
             entry = {
                 "name": name,
@@ -59,29 +75,71 @@ def start_target(name: str, resign_date: str, site_ids: list[str]) -> dict:
                 "created_at": _now(),
                 "sites": {},
             }
-        # 등록된 사이트 목록과 동기화 (새 사이트 추가 시 반영)
         for sid in site_ids:
-            entry["sites"].setdefault(sid, {"status": "pending", "message": "", "updated_at": ""})
-        data[key] = entry
-        data["_current"] = key
+            entry["sites"].setdefault(
+                sid, {"status": "pending", "message": "", "updated_at": ""}
+            )
+        targets[key] = entry
+        if make_active or not data.get("active"):
+            data["active"] = key
         _save(data)
         return entry
 
 
-def current() -> dict | None:
+def snapshot() -> dict:
+    """UI 표시용 전체 상태: 대상자 목록과 현재 활성 키."""
     with _LOCK:
         data = _load()
-        key = data.get("_current")
-        if not key or key not in data:
-            return None
-        return data[key]
+        targets = data["targets"]
+        active = data.get("active")
+        if active not in targets:
+            active = _first_key(targets)
+        return {
+            "active": active,
+            "targets": [{"key": k, **v} for k, v in targets.items()],
+        }
 
 
-def set_site(name: str, resign_date: str, site_id: str, status: str, message: str = "") -> None:
+def set_active(key: str) -> bool:
+    with _LOCK:
+        data = _load()
+        if key in data["targets"]:
+            data["active"] = key
+            _save(data)
+            return True
+        return False
+
+
+def active_entry() -> dict | None:
+    with _LOCK:
+        data = _load()
+        targets = data["targets"]
+        key = data.get("active")
+        if key not in targets:
+            key = _first_key(targets)
+        return targets.get(key) if key else None
+
+
+def remove_target(key: str) -> bool:
+    with _LOCK:
+        data = _load()
+        targets = data["targets"]
+        if key in targets:
+            del targets[key]
+            if data.get("active") == key:
+                data["active"] = _first_key(targets)
+            _save(data)
+            return True
+        return False
+
+
+def set_site(
+    name: str, resign_date: str, site_id: str, status: str, message: str = ""
+) -> None:
     with _LOCK:
         data = _load()
         key = _key(name, resign_date)
-        entry = data.get(key)
+        entry = data["targets"].get(key)
         if entry is None:
             return
         entry["sites"][site_id] = {

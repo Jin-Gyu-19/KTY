@@ -68,16 +68,19 @@ button:disabled { opacity: .5; cursor: default; }
 .site .msg { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .site .actions { display: flex; gap: 8px; }
 
+.section-title { font-size: 15px; margin: 18px 0 8px; }
 .target-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
+  padding: 8px 12px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 8px;
   margin-bottom: 6px;
-  background: #fafbfc;
+  background: #fff;
 }
+.target-row.active { border-color: var(--accent); background: #f2f6ff; }
+.target-actions { display: flex; gap: 6px; }
 
 .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; }
 .badge.pending { background: #eef1f6; color: var(--muted); }
