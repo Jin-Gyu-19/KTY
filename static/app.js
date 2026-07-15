@@ -57,6 +57,18 @@ function renderTargetList(t) {
     el.innerHTML = '<p class="muted">대상자를 추가하거나 엑셀을 올려주세요.</p>';
     return;
   }
+
+  const bar = document.createElement("div");
+  bar.style.textAlign = "right";
+  bar.style.marginBottom = "6px";
+  const clearAll = btn("전체 비우기", "ghost");
+  clearAll.onclick = () => {
+    if (confirm("대상자 목록을 전부 비울까요?"))
+      run(() => api("/api/targets/clear", "POST"));
+  };
+  bar.appendChild(clearAll);
+  el.appendChild(bar);
+
   list.forEach((tg) => {
     const row = document.createElement("div");
     row.className = "target-row" + (tg.key === t.active ? " active" : "");
@@ -73,6 +85,10 @@ function renderTargetList(t) {
     selBtn.disabled = tg.key === t.active;
     selBtn.onclick = () => run(() => api("/api/target/active", "POST", { key: tg.key }));
 
+    const resetBtn = btn("초기화", "ghost");
+    resetBtn.title = "이 사람의 진행 기록을 대기 상태로 되돌립니다";
+    resetBtn.onclick = () => run(() => api("/api/target/reset", "POST", { key: tg.key }));
+
     const delBtn = btn("삭제", "ghost");
     delBtn.onclick = () => {
       if (confirm(`'${tg.name}' 을(를) 목록에서 삭제할까요?`))
@@ -80,6 +96,7 @@ function renderTargetList(t) {
     };
 
     actions.appendChild(selBtn);
+    actions.appendChild(resetBtn);
     actions.appendChild(delBtn);
     row.appendChild(info);
     row.appendChild(actions);

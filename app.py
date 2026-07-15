@@ -82,6 +82,19 @@ def api_target_remove():
     return jsonify({"targets": state.snapshot()})
 
 
+@app.post("/api/target/reset")
+def api_target_reset():
+    key = (request.get_json(force=True).get("key") or "").strip()
+    state.reset_target(key)
+    return jsonify({"targets": state.snapshot()})
+
+
+@app.post("/api/targets/clear")
+def api_targets_clear():
+    state.clear_all()
+    return jsonify({"targets": state.snapshot()})
+
+
 def _fmt_date(v) -> str:
     """엑셀 셀 값을 YYYY-MM-DD 문자열로 정규화한다."""
     import datetime

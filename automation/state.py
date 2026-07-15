@@ -133,6 +133,25 @@ def remove_target(key: str) -> bool:
         return False
 
 
+def reset_target(key: str) -> bool:
+    """대상자의 모든 사이트 상태를 대기로 되돌린다(기록 지우기)."""
+    with _LOCK:
+        data = _load()
+        entry = data["targets"].get(key)
+        if entry is None:
+            return False
+        for sid in list(entry.get("sites", {})):
+            entry["sites"][sid] = {"status": "pending", "message": "", "updated_at": ""}
+        _save(data)
+        return True
+
+
+def clear_all() -> None:
+    """대상자 목록 전체를 비운다."""
+    with _LOCK:
+        _save({"targets": {}, "active": None})
+
+
 def set_site(
     name: str, resign_date: str, site_id: str, status: str, message: str = ""
 ) -> None:
