@@ -168,35 +168,42 @@ class GroupwareScenario(SiteScenario):
         화면에 직접 이동시킨다. 실패하면 메뉴 클릭으로 폴백.
         """
         # 0) 이미 사원정보관리가 떠 있으면(사용자가 수동으로 열었거나 기본 로드) 그대로 사용
-        if self._search_ready(page, 2500):
+        if self._search_ready(page, 2000):
             return
 
-        # 1) 프레임 레이아웃(관리자 메인) 확보
+        # 1) 관리자 메인 확보 (로그인 후 userMain 이면 adminMain 으로 이동)
         try:
             if "adminmain.do" not in (page.url or "").lower():
                 page.goto(ADMIN_MAIN_URL, wait_until="domcontentloaded")
+                page.wait_for_timeout(1000)
         except Exception:
             pass
 
-        # 2) iframe 을 사원정보관리 화면으로 직접 이동 (Frame.goto)
+        # 2) '시스템설정' 타일/메뉴 클릭 → freeb 레이아웃(LNB 트리 + #_content iframe) 로드
+        #    관리자 메인은 처음에 "상세메뉴를 선택하세요" 빈 화면이라 이걸 눌러야 iframe 이 뜬다.
+        for sel in ("text=시스템설정", "a:has-text('시스템설정')", SYSTEM_GNB_LINK):
+            try:
+                page.locator(sel).first.click(timeout=3000)
+                page.wait_for_timeout(1500)
+                break
+            except Exception:
+                continue
+        if self._search_ready(page, 6000):
+            return
+
+        # 3) 그래도 검색창이 없으면 iframe 을 사원정보관리로 직접 이동
         try:
-            page.wait_for_selector(CONTENT_IFRAME, timeout=8000)
             fr = page.frame(name="_content")
             if fr is not None:
                 fr.goto(EMP_MANAGE_VIEW_URL, wait_until="domcontentloaded")
         except Exception:
             pass
-        if self._search_ready(page, 6000):
+        if self._search_ready(page, 5000):
             return
 
-        # 3) 폴백: 시스템설정 GNB → 사원정보관리 트리 클릭
+        # 4) 폴백: 사원정보관리 트리 노드 클릭
         try:
-            page.locator(SYSTEM_GNB_LINK).first.click(timeout=3000)
-            page.wait_for_timeout(1500)
-        except Exception:
-            pass
-        try:
-            page.locator(EMP_MANAGE_ANCHOR).first.click(timeout=6000)
+            page.locator(EMP_MANAGE_ANCHOR).first.click(timeout=4000)
         except Exception:
             pass
 
