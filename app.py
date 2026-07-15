@@ -63,6 +63,77 @@ def api_target():
     return jsonify({"current": entry})
 
 
+def _fmt_date(v) -> str:
+    """엑셀 셀 값을 YYYY-MM-DD 문자열로 정규화한다."""
+    import datetime
+
+    if v is None:
+        return ""
+    if isinstance(v, (datetime.datetime, datetime.date)):
+        return v.strftime("%Y-%m-%d")
+    s = str(v).strip()
+    digits = "".join(ch for ch in s if ch.isdigit())
+    if len(digits) == 8:  # 20260715 → 2026-07-15
+        return f"{digits[0:4]}-{digits[4:6]}-{digits[6:8]}"
+    return s.replace(".", "-").replace("/", "-").replace(" ", "")
+
+
+def _parse_excel(file_storage) -> list[dict]:
+    """이름/퇴사일 열이 있는 엑셀을 읽어 대상자 목록을 만든다.
+
+    헤더에 '이름/성명', '퇴사/퇴직/날짜/일자' 가 있으면 그 열을 쓰고,
+    없으면 첫 열=이름, 둘째 열=퇴사일 로 간주한다.
+    """
+    import io
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(filename=io.BytesIO(file_storage.read()), read_only=True, data_only=True)
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return []
+
+    def _txt(v) -> str:
+        return str(v).strip() if v is not None else ""
+
+    name_idx, date_idx, start = 0, 1, 0
+    header = [_txt(c) for c in rows[0]]
+    found = False
+    for i, t in enumerate(header):
+        if any(k in t for k in ("이름", "성명")):
+            name_idx, found = i, True
+        if any(k in t for k in ("퇴사", "퇴직", "날짜", "일자")):
+            date_idx, found = i, True
+    if found:
+        start = 1  # 헤더 행은 건너뛴다
+
+    targets = []
+    for row in rows[start:]:
+        if not row:
+            continue
+        name = _txt(row[name_idx]) if name_idx < len(row) else ""
+        raw = row[date_idx] if date_idx < len(row) else None
+        if not name:
+            continue
+        targets.append({"name": name, "resign_date": _fmt_date(raw)})
+    return targets
+
+
+@app.post("/api/target/excel")
+def api_target_excel():
+    f = request.files.get("file")
+    if f is None or not f.filename:
+        return jsonify({"error": "엑셀 파일을 선택하세요."}), 400
+    try:
+        targets = _parse_excel(f)
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"엑셀을 읽지 못했습니다: {exc}"}), 400
+    if not targets:
+        return jsonify({"error": "대상자를 찾지 못했습니다. (이름/퇴사일 열을 확인해 주세요)"}), 400
+    return jsonify({"targets": targets})
+
+
 def _current_employee() -> Employee | None:
     cur = state.current()
     if not cur:

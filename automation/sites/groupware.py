@@ -26,13 +26,15 @@
   - 최종 '완료'(#finishBtn → ok()) 시 confirm 후 empResignProcFinish.do 로 확정.
 
 따라서 자동화 범위(안전):
-  1) 로그인은 사용자가 직접 (관리자 모드, '시스템설정' 진입 상태)
-  2) 사원정보관리 진입
+  1) 로그인은 사용자가 직접
+  2) 관리자 모드 + 사원정보관리 자동 이동
   3) 이름으로 검색
   4) 결과 행 선택 (동명이인 없음. 결과가 정확히 1건이 아니면 안전상 중단)
   5) 퇴사처리 클릭 → 팝업창 열림
   6) 팝업의 '이름'이 입력한 대상과 일치하는지 대조(안전 확인)
-  7) 여기서 멈춤 → 퇴사일 확인·대체자 지정·완료는 사람이 마무리
+  7) 마법사 [다음]을 갈 수 있는 데까지 자동 진행.
+     대체자 지정이 필요한 단계에서 막히거나 마지막 단계면 멈춘다.
+     [완료](실제 확정)는 절대 자동으로 누르지 않는다 → 사람이 마무리.
 """
 
 from __future__ import annotations
@@ -49,10 +51,20 @@ SEARCH_BUTTON = "#searchButton"
 GRID_ROW = "#grid .k-grid-content tr[role='row']"
 SELECTED_ROW = "#grid .k-grid-content tr.k-state-selected"
 RETIRE_BUTTON = "#retireEmp"
+# 관리자 메인(시스템설정 + 사원정보관리가 기본 로드)
+ADMIN_MAIN_URL = "http://gw.bdo.kr/gw/adminMain.do"
 # 팝업 상단 대상정보 표의 '이름' 값 (안전 대조용)
 POPUP_NAME_XPATH = (
     "xpath=//div[contains(@class,'com_ta')]"
     "//th[normalize-space()='이름']/following-sibling::td[1]"
+)
+# 팝업 마법사 버튼
+POPUP_NEXT_BUTTON = "#nextBtn"
+POPUP_FINISH_BUTTON = "#finishBtn"
+# 현재 보이는 마법사 단계 id 를 알아내는 스크립트
+_CURRENT_STEP_JS = (
+    "() => { const e=[...document.querySelectorAll(\"div[id^='step_div']\")]"
+    ".find(x => x.offsetParent !== null); return e ? e.id : null; }"
 )
 
 
@@ -66,13 +78,92 @@ class GroupwareScenario(SiteScenario):
     # 팝업 마법사(대체자 지정 등)는 사람이 판단해야 하므로 자동 완료하지 않는다.
     auto_submit = False
 
-    def run(self, page, employee: Employee) -> StepResult:
-        # ----- 2) 사원정보관리 진입 → iframe -----
+    def _ensure_admin_emp(self, page) -> None:
+        """관리자 모드의 '사원정보관리' 화면으로 이동한다.
+
+        - 이미 시스템설정 트리가 보이면 사원정보관리 앵커를 클릭.
+        - 사용자 모드 등 다른 곳이면 관리자 메인으로 이동 후 재시도.
+        """
         try:
-            page.locator(EMP_MANAGE_ANCHOR).click(timeout=5000)
+            page.locator(EMP_MANAGE_ANCHOR).click(timeout=4000)
+            return
         except Exception:
-            # 이미 사원정보관리가 로드돼 있으면 무시
             pass
+        try:
+            page.goto(ADMIN_MAIN_URL, wait_until="domcontentloaded")
+        except Exception:
+            pass
+        try:
+            page.locator(EMP_MANAGE_ANCHOR).click(timeout=6000)
+        except Exception:
+            # 관리자 메인은 기본으로 사원정보관리가 로드되므로 실패해도 진행
+            pass
+
+    def _auto_next(self, popup) -> str:
+        """팝업 마법사의 [다음]을 갈 수 있는 데까지 누른다.
+
+        [완료]는 절대 누르지 않는다(실제 퇴사 확정이라 사람이 확인해야 함).
+        대체자 지정 등으로 [다음]이 막히거나 마지막 단계에 도달하면 멈추고,
+        멈춘 이유 문구를 돌려준다.
+        """
+        # 마법사 진행 중 뜨는 안내창은 닫되(=막힘 신호), 확인창은 절대 승인하지 않는다.
+        state = {"blocked": False, "msg": ""}
+
+        def _on_dialog(d):
+            state["blocked"] = True
+            state["msg"] = d.message or ""
+            try:
+                if d.type == "confirm":
+                    d.dismiss()  # 안전: 확정 성격 확인창은 취소
+                else:
+                    d.accept()
+            except Exception:
+                pass
+
+        popup.on("dialog", _on_dialog)
+
+        def _cur_step():
+            try:
+                return popup.evaluate(_CURRENT_STEP_JS)
+            except Exception:
+                return None
+
+        advanced = 0
+        for _ in range(15):
+            # 마지막 단계면 완료 버튼이 보인다 → 누르지 않고 멈춤
+            try:
+                if popup.locator(POPUP_FINISH_BUTTON).is_visible():
+                    return (
+                        f"마지막 단계까지 자동 진행({advanced}단계)했습니다. "
+                        "확정하려면 [완료]를 직접 눌러 주세요."
+                    )
+            except Exception:
+                pass
+
+            before = _cur_step()
+            state["blocked"] = False
+            try:
+                popup.locator(POPUP_NEXT_BUTTON).click(timeout=3000)
+            except Exception:
+                return f"{advanced}단계 진행 후 [다음] 버튼을 찾지 못해 멈췄습니다. 화면을 확인해 주세요."
+            popup.wait_for_timeout(700)  # 단계 전환/데이터 로딩 대기
+
+            after = _cur_step()
+            if state["blocked"] or (after is not None and after == before):
+                note = state["msg"].replace("\n", " ").strip()
+                prefix = f"'{note}' 안내로 " if note else ""
+                return (
+                    f"{advanced}단계까지 자동 진행했고, {prefix}멈췄습니다. "
+                    "이 단계는 대체자 지정 등 수동 처리가 필요합니다. "
+                    "처리 후 [다음]~[완료]로 마무리해 주세요."
+                )
+            advanced += 1
+
+        return f"{advanced}단계 자동 진행했습니다. 나머지는 직접 확인해 주세요."
+
+    def run(self, page, employee: Employee) -> StepResult:
+        # ----- 2) 관리자 모드 + 사원정보관리 자동 이동 -----
+        self._ensure_admin_emp(page)
 
         frame = page.frame_locator(CONTENT_IFRAME)
 
@@ -161,15 +252,14 @@ class GroupwareScenario(SiteScenario):
                 ),
             )
 
-        # ----- 7) 여기서 멈춤 (마법사는 사람이 마무리) -----
+        # ----- 7) 마법사 [다음] 자동 진행 (완료는 사람이) -----
         who = f"{name_in_popup or employee.name}"
+        tail = self._auto_next(popup)
         return StepResult(
             ok=True,
             awaiting=True,
             message=(
-                f"'{who}' 퇴사처리 팝업을 열었습니다(대상 확인 완료). "
-                "더존 퇴사일은 '오늘'로 자동 지정되며(미래 예약 불가), "
-                "미결 결재·문서함 등 대체자 지정은 판단이 필요해 자동화하지 않습니다. "
-                "팝업에서 [다음]으로 진행하며 대체자를 지정하고 [완료]로 마무리해 주세요."
+                f"'{who}' 퇴사처리 팝업 진행: {tail} "
+                "(퇴사일은 오늘로 자동 지정됩니다. 최종 [완료]는 안전을 위해 직접 눌러 주세요.)"
             ),
         )

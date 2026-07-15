@@ -97,6 +97,57 @@ async function run(fn) {
   await refresh();
 }
 
+document.getElementById("uploadBtn").onclick = async () => {
+  const fileEl = document.getElementById("excel");
+  if (!fileEl.files.length) {
+    alert("엑셀 파일을 먼저 선택하세요.");
+    return;
+  }
+  const fd = new FormData();
+  fd.append("file", fileEl.files[0]);
+  try {
+    const res = await fetch("/api/target/excel", { method: "POST", body: fd });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "업로드 실패");
+    renderTargets(data.targets);
+  } catch (e) {
+    alert(e.message);
+  }
+};
+
+function renderTargets(targets) {
+  const el = document.getElementById("targets");
+  el.innerHTML = "";
+  if (!targets || !targets.length) return;
+
+  const title = document.createElement("div");
+  title.className = "muted";
+  title.style.margin = "6px 0";
+  title.textContent = `엑셀에서 ${targets.length}명 불러옴 — 처리할 대상을 선택하세요:`;
+  el.appendChild(title);
+
+  targets.forEach((t) => {
+    const row = document.createElement("div");
+    row.className = "target-row";
+    const info = document.createElement("span");
+    info.innerHTML = `<b>${t.name}</b> <span class="muted">${t.resign_date || "(퇴사일 없음)"}</span>`;
+    const b = btn("선택", "ghost");
+    b.onclick = async () => {
+      document.getElementById("name").value = t.name;
+      document.getElementById("resign_date").value = t.resign_date || "";
+      try {
+        await api("/api/target", "POST", { name: t.name, resign_date: t.resign_date });
+        await refresh();
+      } catch (e) {
+        alert(e.message);
+      }
+    };
+    row.appendChild(info);
+    row.appendChild(b);
+    el.appendChild(row);
+  });
+}
+
 document.getElementById("startBtn").onclick = async () => {
   const name = document.getElementById("name").value.trim();
   const resign_date = document.getElementById("resign_date").value.trim();

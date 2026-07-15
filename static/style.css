@@ -68,6 +68,17 @@ button:disabled { opacity: .5; cursor: default; }
 .site .msg { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .site .actions { display: flex; gap: 8px; }
 
+.target-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  background: #fafbfc;
+}
+
 .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; }
 .badge.pending { background: #eef1f6; color: var(--muted); }
 .badge.in_progress { background: #fff3d6; color: var(--warn); }
