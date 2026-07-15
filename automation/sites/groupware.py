@@ -177,16 +177,15 @@ class GroupwareScenario(SiteScenario):
             pass
         return text
 
-    def _ensure_admin_emp(self, page) -> None:
-        """관리자 모드의 '사원정보관리' 화면(iframe)을 확실히 로드한다.
+    def _ensure_admin_emp(self, page) -> bool:
+        """관리자 모드의 '사원정보관리' 화면을 로드한다. 성공하면 True.
 
-        더존 LNB 는 jstree 라 메뉴 클릭이 타이밍에 잘 흔들린다. 그래서
-        iframe(#_content)을 Playwright 정식 방법(Frame.goto)으로 사원정보관리
-        화면에 직접 이동시킨다. 실패하면 메뉴 클릭으로 폴백.
+        되면 즉시 반환하고, 안 되면 빨리 실패하도록 타임아웃을 짧게 잡는다.
+        (성공은 보통 ~5초, 실패는 ~10초 안에 판별)
         """
-        # 0) 이미 사원정보관리가 떠 있으면(사용자가 수동으로 열었거나 기본 로드) 그대로 사용
-        if self._search_ready(page, 2000):
-            return
+        # 0) 이미 사원정보관리가 떠 있으면 그대로 사용
+        if self._search_ready(page, 1200):
+            return True
 
         # 1) 관리자 메인 확보 (로그인 후 userMain 이면 adminMain 으로 이동)
         try:
@@ -195,60 +194,41 @@ class GroupwareScenario(SiteScenario):
         except Exception:
             pass
 
-        # 2) 시스템설정 진입.
-        #    타일 클릭이 타이밍을 타서 반응 없을 때가 있어, '진입 함수 직접 호출'을 우선 쓴다.
-        #    관리자 메인은 처음에 "상세메뉴를 선택하세요" 빈 화면이라 이걸 눌러야 iframe 이 뜬다.
+        # 2) 시스템설정 진입. 타일 클릭이 타이밍을 타므로 '진입 함수 직접 호출'을 우선.
         try:
-            page.locator("text=시스템설정").first.wait_for(state="visible", timeout=6000)
+            page.locator("text=시스템설정").first.wait_for(state="visible", timeout=2500)
         except Exception:
             pass
-        page.wait_for_timeout(400)  # 페이지 스크립트/핸들러 바인딩 여유
-
-        entered = False
+        page.wait_for_timeout(300)
         try:
-            entered = bool(
-                page.evaluate(
-                    "() => { try { onclickTopCustomMenu(900000000,'시스템설정','','gw','','N');"
-                    " return true; } catch(e){ try { menu.clickTopBtn('900000000','시스템설정','','gw');"
-                    " return true; } catch(e2){ return false; } } }"
-                )
+            page.evaluate(
+                "() => { try { onclickTopCustomMenu(900000000,'시스템설정','','gw','','N');"
+                " return true; } catch(e){ try { menu.clickTopBtn('900000000','시스템설정','','gw');"
+                " return true; } catch(e2){ return false; } } }"
             )
         except Exception:
-            entered = False
-        if entered and self._search_ready(page, 10000):
-            return
+            pass
+        if self._search_ready(page, 6000):
+            return True
 
-        # 2b) 함수 호출이 안 되면 실제 타일 클릭으로 폴백
-        for sel in (
-            "[title='시스템설정']",
-            "a:has-text('시스템설정')",
-            "text=시스템설정",
-            SYSTEM_GNB_LINK,
-        ):
+        # 2b) 함수 호출이 안 통하면 타일을 한 번 클릭 후 짧게 대기
+        for sel in ("[title='시스템설정']", "a:has-text('시스템설정')", "text=시스템설정"):
             try:
-                loc = page.locator(sel).first
-                loc.wait_for(state="visible", timeout=2500)
-                loc.click(timeout=2500)
-                if self._search_ready(page, 8000):
-                    return
+                page.locator(sel).first.click(timeout=1500)
+                break
             except Exception:
                 continue
+        if self._search_ready(page, 3000):
+            return True
 
-        # 3) 그래도 검색창이 없으면 iframe 을 사원정보관리로 직접 이동
+        # 3) 마지막: iframe 을 사원정보관리로 직접 이동
         try:
             fr = page.frame(name="_content")
             if fr is not None:
                 fr.goto(EMP_MANAGE_VIEW_URL, wait_until="domcontentloaded")
         except Exception:
             pass
-        if self._search_ready(page, 5000):
-            return
-
-        # 4) 폴백: 사원정보관리 트리 노드 클릭
-        try:
-            page.locator(EMP_MANAGE_ANCHOR).first.click(timeout=4000)
-        except Exception:
-            pass
+        return self._search_ready(page, 2500)
 
     def _wait_settle(self, popup, max_ms: int = SETTLE_MAX_MS) -> None:
         """페이지 로딩(ajax)이 끝날 때까지 기다린다.
@@ -350,10 +330,13 @@ class GroupwareScenario(SiteScenario):
 
     def _run_inner(self, page, employee: Employee) -> StepResult:
         # ----- 2) 관리자 모드 + 사원정보관리 자동 이동 -----
-        self._ensure_admin_emp(page)
+        ok = self._ensure_admin_emp(page)
 
         # ----- 3) 검색창이 있는 프레임 찾기 (iframe 구조가 달라도 대응) -----
-        frame = self._wait_emp_frame(page, 15000)
+        # _ensure 가 성공했으면 즉시, 실패했으면 짧게만 더 기다리고 바로 오류를 띄운다.
+        frame = self._find_emp_frame(page)
+        if frame is None and not ok:
+            frame = self._wait_emp_frame(page, 2000)
         if frame is None:
             return StepResult(
                 ok=False,
