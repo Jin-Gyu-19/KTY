@@ -82,13 +82,27 @@ class GroupwareScenario(SiteScenario):
     # 팝업 마법사(대체자 지정 등)는 사람이 판단해야 하므로 자동 완료하지 않는다.
     auto_submit = False
 
+    def _search_ready(self, page, timeout: int) -> bool:
+        """iframe 안에 사원 검색창이 떴는지 확인한다."""
+        try:
+            page.frame_locator(CONTENT_IFRAME).locator(SEARCH_INPUT).wait_for(
+                state="visible", timeout=timeout
+            )
+            return True
+        except Exception:
+            return False
+
     def _ensure_admin_emp(self, page) -> None:
         """관리자 모드의 '사원정보관리' 화면(iframe)을 확실히 로드한다.
 
         더존 LNB 는 jstree 라 메뉴 클릭이 타이밍에 잘 흔들린다. 그래서
-        메뉴를 누르는 대신 #_content iframe 의 주소를 사원정보관리로 '직접'
-        바꿔 로드한다(같은 도메인/세션이라 정상 동작). 실패하면 메뉴 클릭으로 폴백.
+        iframe(#_content)을 Playwright 정식 방법(Frame.goto)으로 사원정보관리
+        화면에 직접 이동시킨다. 실패하면 메뉴 클릭으로 폴백.
         """
+        # 0) 이미 사원정보관리가 떠 있으면(사용자가 수동으로 열었거나 기본 로드) 그대로 사용
+        if self._search_ready(page, 2500):
+            return
+
         # 1) 프레임 레이아웃(관리자 메인) 확보
         try:
             if "adminmain.do" not in (page.url or "").lower():
@@ -96,20 +110,21 @@ class GroupwareScenario(SiteScenario):
         except Exception:
             pass
 
-        # 2) iframe(#_content)을 사원정보관리 화면으로 직접 이동
+        # 2) iframe 을 사원정보관리 화면으로 직접 이동 (Frame.goto)
         try:
             page.wait_for_selector(CONTENT_IFRAME, timeout=8000)
-            page.eval_on_selector(
-                CONTENT_IFRAME, "(f, url) => { f.src = url; }", EMP_MANAGE_VIEW_URL
-            )
-            return
+            fr = page.frame(name="_content")
+            if fr is not None:
+                fr.goto(EMP_MANAGE_VIEW_URL, wait_until="domcontentloaded")
         except Exception:
             pass
+        if self._search_ready(page, 6000):
+            return
 
         # 3) 폴백: 시스템설정 GNB → 사원정보관리 트리 클릭
         try:
             page.locator(SYSTEM_GNB_LINK).first.click(timeout=3000)
-            page.wait_for_timeout(1200)
+            page.wait_for_timeout(1500)
         except Exception:
             pass
         try:
