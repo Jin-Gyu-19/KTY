@@ -208,27 +208,35 @@ class GroupwareScenario(SiteScenario):
             )
         except Exception:
             pass
-        if self._search_ready(page, 6000):
+        # 기본으로 사원정보관리가 떴으면 바로 사용
+        if self._search_ready(page, 1500):
             return True
 
-        # 2b) 함수 호출이 안 통하면 타일을 한 번 클릭 후 짧게 대기
+        # 3) 사원정보관리를 iframe 에 '직접' 로드 (트리 클릭 없이 빠르게)
+        if self._load_emp_via_iframe(page, appear_timeout=4000):
+            return True
+
+        # 4) 폴백: 시스템설정 타일을 실제 클릭한 뒤 다시 직접 로드
         for sel in ("[title='시스템설정']", "a:has-text('시스템설정')", "text=시스템설정"):
             try:
                 page.locator(sel).first.click(timeout=1500)
                 break
             except Exception:
                 continue
-        if self._search_ready(page, 3000):
+        if self._search_ready(page, 1500):
             return True
+        return self._load_emp_via_iframe(page, appear_timeout=3000)
 
-        # 3) 마지막: iframe 을 사원정보관리로 직접 이동
+    def _load_emp_via_iframe(self, page, appear_timeout: int) -> bool:
+        """#_content iframe 을 사원정보관리 화면으로 직접 이동시켜 빠르게 로드한다."""
         try:
+            page.wait_for_selector(CONTENT_IFRAME, timeout=appear_timeout)
             fr = page.frame(name="_content")
             if fr is not None:
                 fr.goto(EMP_MANAGE_VIEW_URL, wait_until="domcontentloaded")
         except Exception:
-            pass
-        return self._search_ready(page, 2500)
+            return False
+        return self._search_ready(page, 3000)
 
     def _wait_settle(self, popup, max_ms: int = SETTLE_MAX_MS) -> None:
         """페이지 로딩(ajax)이 끝날 때까지 기다린다.
