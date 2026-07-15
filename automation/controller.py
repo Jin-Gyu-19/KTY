@@ -95,7 +95,29 @@ class BrowserController:
         self._attached = False
 
     # ---- 브라우저 조작 (모두 submit 경유) ----
+    def _context_alive(self) -> bool:
+        """현재 컨텍스트/브라우저가 살아있는지 확인한다(사용자가 창을 닫았을 수 있음)."""
+        if self._context is None:
+            return False
+        try:
+            _ = self._context.pages  # 닫힌 컨텍스트면 예외
+            br = self._context.browser
+            if br is not None and not br.is_connected():
+                return False
+            return True
+        except Exception:
+            return False
+
+    def _reset_browser(self) -> None:
+        self._browser = None
+        self._context = None
+        self._page = None
+        self._attached = False
+
     def _ensure_context(self):
+        # 사용자가 창을 닫아 컨텍스트가 죽었으면 새로 만든다.
+        if self._context is not None and not self._context_alive():
+            self._reset_browser()
         if self._context is not None:
             return self._context
 
@@ -147,11 +169,11 @@ class BrowserController:
                 if self._attached:
                     # 붙은 브라우저에는 새 탭을 열어 이동 (기존 탭은 건드리지 않음)
                     page = ctx.new_page()
-                    page.goto(url, wait_until="domcontentloaded")
                 else:
-                    # 전용 창: 초기 빈 탭 재사용
-                    page = ctx.pages[0] if ctx.pages else ctx.new_page()
-                    page.goto(url, wait_until="domcontentloaded")
+                    # 전용 창: 살아있는 탭 재사용, 없으면 새 탭
+                    living = [p for p in ctx.pages if not p.is_closed()]
+                    page = living[0] if living else ctx.new_page()
+                page.goto(url, wait_until="domcontentloaded")
 
             self._page = page
             page.bring_to_front()
@@ -162,8 +184,14 @@ class BrowserController:
         """열려 있는 페이지에서 시나리오를 실행한다."""
 
         def _do():
-            if self._page is None:
-                raise RuntimeError("먼저 사이트를 열어야 합니다.")
+            if (
+                self._page is None
+                or self._page.is_closed()
+                or not self._context_alive()
+            ):
+                raise RuntimeError(
+                    "자동화 브라우저가 닫혀 있습니다. [열기]를 다시 눌러 로그인한 뒤 진행해 주세요."
+                )
             return scenario.run(self._page, employee)
 
         return self.submit(_do)
