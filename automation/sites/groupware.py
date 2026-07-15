@@ -51,8 +51,12 @@ SEARCH_BUTTON = "#searchButton"
 GRID_ROW = "#grid .k-grid-content tr[role='row']"
 SELECTED_ROW = "#grid .k-grid-content tr.k-state-selected"
 RETIRE_BUTTON = "#retireEmp"
-# 관리자 메인(시스템설정 + 사원정보관리가 기본 로드)
+# 관리자 메인(프레임 레이아웃 + #_content iframe 포함)
 ADMIN_MAIN_URL = "http://gw.bdo.kr/gw/adminMain.do"
+# 사원정보관리 화면(iframe 에 직접 로드할 URL)
+EMP_MANAGE_VIEW_URL = "http://gw.bdo.kr/gw/cmm/systemx/empManageView.do?menu_no=902010000"
+# 시스템설정 GNB 링크(폴백용)
+SYSTEM_GNB_LINK = "#topMenu900000000 a"
 # 팝업 상단 대상정보 표의 '이름' 값 (안전 대조용)
 POPUP_NAME_XPATH = (
     "xpath=//div[contains(@class,'com_ta')]"
@@ -79,24 +83,38 @@ class GroupwareScenario(SiteScenario):
     auto_submit = False
 
     def _ensure_admin_emp(self, page) -> None:
-        """관리자 모드의 '사원정보관리' 화면으로 이동한다.
+        """관리자 모드의 '사원정보관리' 화면(iframe)을 확실히 로드한다.
 
-        - 이미 시스템설정 트리가 보이면 사원정보관리 앵커를 클릭.
-        - 사용자 모드 등 다른 곳이면 관리자 메인으로 이동 후 재시도.
+        더존 LNB 는 jstree 라 메뉴 클릭이 타이밍에 잘 흔들린다. 그래서
+        메뉴를 누르는 대신 #_content iframe 의 주소를 사원정보관리로 '직접'
+        바꿔 로드한다(같은 도메인/세션이라 정상 동작). 실패하면 메뉴 클릭으로 폴백.
         """
+        # 1) 프레임 레이아웃(관리자 메인) 확보
         try:
-            page.locator(EMP_MANAGE_ANCHOR).click(timeout=4000)
+            if "adminmain.do" not in (page.url or "").lower():
+                page.goto(ADMIN_MAIN_URL, wait_until="domcontentloaded")
+        except Exception:
+            pass
+
+        # 2) iframe(#_content)을 사원정보관리 화면으로 직접 이동
+        try:
+            page.wait_for_selector(CONTENT_IFRAME, timeout=8000)
+            page.eval_on_selector(
+                CONTENT_IFRAME, "(f, url) => { f.src = url; }", EMP_MANAGE_VIEW_URL
+            )
             return
         except Exception:
             pass
+
+        # 3) 폴백: 시스템설정 GNB → 사원정보관리 트리 클릭
         try:
-            page.goto(ADMIN_MAIN_URL, wait_until="domcontentloaded")
+            page.locator(SYSTEM_GNB_LINK).first.click(timeout=3000)
+            page.wait_for_timeout(1200)
         except Exception:
             pass
         try:
-            page.locator(EMP_MANAGE_ANCHOR).click(timeout=6000)
+            page.locator(EMP_MANAGE_ANCHOR).first.click(timeout=6000)
         except Exception:
-            # 관리자 메인은 기본으로 사원정보관리가 로드되므로 실패해도 진행
             pass
 
     def _auto_next(self, popup) -> str:
@@ -172,11 +190,17 @@ class GroupwareScenario(SiteScenario):
         try:
             search.wait_for(state="visible", timeout=15000)
         except Exception:
+            cur = ""
+            try:
+                cur = page.url
+            except Exception:
+                pass
             return StepResult(
                 ok=False,
                 message=(
                     "사원정보관리 화면(iframe)을 찾지 못했습니다. "
-                    "관리자 모드에서 '시스템설정 > 사원관리 > 사원정보관리'가 열려 있는지 확인해 주세요."
+                    f"(현재 주소: {cur}) 관리자로 로그인된 상태인지 확인하고, "
+                    "안 되면 브라우저에서 '시스템설정 > 사원관리 > 사원정보관리'를 직접 한 번 연 뒤 다시 [자동 처리] 해주세요."
                 ),
             )
         search.fill(employee.name)
