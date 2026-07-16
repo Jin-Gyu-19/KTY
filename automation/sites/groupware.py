@@ -337,26 +337,42 @@ class GroupwareScenario(SiteScenario):
             )
 
     def _auto_login(self, page) -> None:
-        """로그인 화면이면 저장된 ID/PW 로 자동 로그인한다(있을 때만).
+        """로그인 화면이면 자동 로그인한다.
 
-        gw.bdo.kr 로그인 폼 셀렉터가 확인되면 정확히 맞추고, 지금은 일반적인
-        형태(보이는 텍스트칸=아이디, 비밀번호칸=PW)로 채운 뒤 제출한다.
+        - 앱에 저장된 ID/PW 가 있으면 그걸로 채워서 제출(가장 확실).
+        - 없으면, 크로미움이 페이지 열 때 자동완성으로 이미 채워둔 경우에 한해
+          로그인 버튼만 눌러 제출한다. (브라우저 자체 자동완성 드롭다운은 자동화가
+          클릭할 수 없으므로, '이미 채워졌을 때 제출'만 지원한다.)
         """
-        creds = getattr(self, "credentials", None)
-        if not creds or not creds.get("username"):
-            return
+        # 로그인 화면인지: 보이는 비밀번호칸이 있는지로 판단
         try:
             pw = page.locator("input[type=password]:visible").first
             if pw.count() == 0:
-                return  # 비밀번호칸이 없으면 로그인 화면이 아님
+                return
         except Exception:
             return
+
+        creds = getattr(self, "credentials", None)
+        if creds and creds.get("username"):
+            try:
+                uid = page.locator(
+                    "input[type=text]:visible, input[type=email]:visible"
+                ).first
+                uid.fill(creds["username"])
+                pw.fill(creds["password"])
+            except Exception:
+                return
+        else:
+            # 앱 저장 정보 없음 → 자동완성으로 이미 채워졌는지 확인
+            try:
+                page.wait_for_timeout(1200)  # 자동완성 반영 시간
+                if not (pw.input_value() or "").strip():
+                    return  # 자동완성 안 됨 → 사람이 직접 로그인해야 함
+            except Exception:
+                return
+
+        # 제출: 로그인 버튼 클릭, 없으면 Enter
         try:
-            uid = page.locator(
-                "input[type=text]:visible, input[type=email]:visible"
-            ).first
-            uid.fill(creds["username"])
-            pw.fill(creds["password"])
             clicked = False
             for sel in (
                 "button:has-text('로그인')",
