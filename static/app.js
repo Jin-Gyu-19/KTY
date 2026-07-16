@@ -235,14 +235,55 @@ function renderTargetList(t) {
   });
 }
 
+// 사이트 이름에서 "이름 (호스트)" 를 분리한다. 예: "Accio (bdo.accio.kr)"
+function splitSysName(full) {
+  const m = /^(.*?)\s*\(([^)]+)\)\s*$/.exec(full || "");
+  return m ? { base: m[1], host: m[2] } : { base: full || "", host: "" };
+}
+
+// 시스템 표(헤더)를 만들어 tbody 를 돌려준다.
+function buildSysTable() {
+  const table = document.createElement("table");
+  table.className = "systbl";
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th class="c-inc">포함</th>
+        <th class="c-name">시스템</th>
+        <th class="c-type">유형</th>
+        <th class="c-badge">상태</th>
+        <th class="c-act">동작</th>
+      </tr>
+    </thead>
+    <tbody></tbody>`;
+  return { table, tbody: table.querySelector("tbody") };
+}
+
+function sysCells(idx, name, kind, statusKey, statusText, demo) {
+  const { base, host } = splitSysName(name);
+  const tr = document.createElement("tr");
+  if (demo) tr.className = "demo";
+  tr.innerHTML = `
+    <td class="c-inc"></td>
+    <td class="c-name">
+      <div class="namewrap">
+        <span class="idx">${idx}</span>
+        <span class="sysname">${base}${host ? ` <span class="host">${host}</span>` : ""}</span>
+      </div>
+    </td>
+    <td class="c-type"><span class="chip type">${kind === "api" ? "API" : "브라우저"}</span></td>
+    <td class="c-badge"><span class="badge ${statusKey}">${statusText}</span></td>
+    <td class="c-act"><div class="actions"></div></td>`;
+  return tr;
+}
+
 // 대상자가 없을 때 '대상 시스템' 패널이 휑하지 않게 미리보기(데모) 4건을 보여준다.
 function renderChecklistPreview(listEl) {
   listEl.innerHTML = "";
-  // 실제 등록된 사이트를 우선 보여주고, 4건이 안 되면 데모로 채운다.
   const demo = [
     { name: "더존 그룹웨어", kind: "browser" },
-    { name: "Accio", kind: "browser" },
-    { name: "VPN", kind: "browser" },
+    { name: "Accio (bdo.accio.kr)", kind: "browser" },
+    { name: "VPN (61.73.184.193)", kind: "browser" },
     { name: "M365 (직접 처리)", kind: "api" },
     { name: "업무 사이트", kind: "browser" },
   ];
@@ -254,20 +295,15 @@ function renderChecklistPreview(listEl) {
     if (rows.length >= 4) break;
     if (!rows.some((r) => r.name === d.name)) rows.push(d);
   }
+  const { table, tbody } = buildSysTable();
   rows.slice(0, 4).forEach((s, i) => {
-    const row = document.createElement("div");
-    row.className = "site demo";
-    row.innerHTML = `
-      <div class="idx">${i + 1}</div>
-      <div class="body">
-        <div class="title">${s.name}
-          <span class="tag">${s.kind === "api" ? "API" : "브라우저"}</span>
-          <span class="badge pending">미리보기</span>
-        </div>
-        <div class="msg">대상자를 선택하면 [열기]·[로그인정보]가 여기 표시돼요.</div>
-      </div>`;
-    listEl.appendChild(row);
+    const tr = sysCells(i + 1, s.name, s.kind, "pending", "미리보기", true);
+    tr.querySelector(".c-inc").innerHTML = '<input type="checkbox" disabled />';
+    tr.querySelector(".actions").innerHTML =
+      '<span class="muted" style="font-size:12px;">대상자 선택 시 활성화</span>';
+    tbody.appendChild(tr);
   });
+  listEl.appendChild(table);
 }
 
 // ----- 활성 대상자의 사이트 체크리스트 -----
@@ -310,29 +346,18 @@ function renderChecklist(t) {
   sbar.appendChild(sleft);
   listEl.appendChild(sbar);
 
+  const { table, tbody } = buildSysTable();
+
   scenarios.forEach((s, i) => {
     const site = active.sites[s.id] || { status: "pending", message: "" };
-    const row = document.createElement("div");
-    row.className = "site" + (enabled.has(s.id) ? "" : " off");
-
     const isApi = s.kind === "api";
-    // 열기는 로그인/이동용으로 항상 가능. 실제 처리는 순차 처리(전체/선택)로 돌린다.
-    const canOpen = !isApi;
+    const tr = sysCells(
+      i + 1, s.name, s.kind, site.status, STATUS_LABEL[site.status] || site.status,
+      !enabled.has(s.id)
+    );
+    tr.dataset.site = s.id;
 
-    row.innerHTML = `
-      <div class="idx">${i + 1}</div>
-      <div class="body">
-        <div class="title">${s.name}
-          <span class="tag">${isApi ? "API" : "브라우저"}</span>
-          <span class="badge ${site.status}">${STATUS_LABEL[site.status] || site.status}</span>
-        </div>
-        <div class="msg">${site.message || ""}</div>
-      </div>
-      <div class="actions"></div>`;
-
-    // 포함/제외 토글 (제외하면 순차 처리에서 빠짐)
-    const inc = document.createElement("label");
-    inc.className = "inc";
+    // 포함/제외 토글
     const incCb = document.createElement("input");
     incCb.type = "checkbox";
     incCb.checked = enabled.has(s.id);
@@ -347,31 +372,48 @@ function renderChecklist(t) {
         alert(e.message);
       }
     };
-    inc.appendChild(incCb);
-    row.insertBefore(inc, row.firstChild);
+    tr.querySelector(".c-inc").appendChild(incCb);
 
-    const actions = row.querySelector(".actions");
+    const actions = tr.querySelector(".actions");
     if (!isApi) {
       const openBtn = btn("열기", "");
-      openBtn.disabled = !canOpen;
       openBtn.onclick = () => run(() => api(`/api/site/${s.id}/open`, "POST"));
       actions.appendChild(openBtn);
 
       const credBtn = btn(s.has_credentials ? "🔑 저장됨" : "🔑 로그인정보", "ghost");
-      credBtn.onclick = () => toggleCredForm(row, s);
+      if (s.has_credentials) credBtn.classList.add("saved");
+      credBtn.onclick = () => toggleCredForm(tr, s);
       actions.appendChild(credBtn);
+    } else {
+      actions.innerHTML = '<span class="muted" style="font-size:12px;">직접 처리</span>';
     }
 
-    listEl.appendChild(row);
+    // 사이트 메시지(진행 안내)를 이름 아래 작게
+    if (site.message) {
+      const nameCell = tr.querySelector(".c-name");
+      const msg = document.createElement("div");
+      msg.className = "sysmsg";
+      msg.textContent = site.message;
+      nameCell.appendChild(msg);
+    }
+
+    tbody.appendChild(tr);
   });
+
+  listEl.appendChild(table);
 }
 
-function toggleCredForm(row, s) {
-  const existing = row.querySelector(".cred-form");
-  if (existing) {
-    existing.remove();
+// 로그인정보 입력줄을 해당 사이트 행 아래에 폭 전체로 펼친다.
+function toggleCredForm(tr, s) {
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains("credrow")) {
+    next.remove();
     return;
   }
+  const cr = document.createElement("tr");
+  cr.className = "credrow";
+  const td = document.createElement("td");
+  td.colSpan = 5;
   const form = document.createElement("div");
   form.className = "cred-form";
   const user = document.createElement("input");
@@ -387,7 +429,6 @@ function toggleCredForm(row, s) {
         username: user.value.trim(),
         password: pass.value,
       });
-      form.remove();
       await refresh();
     } catch (e) {
       alert(e.message);
@@ -397,11 +438,10 @@ function toggleCredForm(row, s) {
   hint.className = "muted";
   hint.textContent =
     "Windows 계정으로 암호화되어 이 PC에만 저장됩니다(평문 노출 없음). 아이디를 비우고 저장하면 삭제.";
-  form.appendChild(user);
-  form.appendChild(pass);
-  form.appendChild(save);
-  form.appendChild(hint);
-  row.appendChild(form);
+  form.append(user, pass, save, hint);
+  td.appendChild(form);
+  cr.appendChild(td);
+  tr.after(cr);
 }
 
 async function run(fn) {
