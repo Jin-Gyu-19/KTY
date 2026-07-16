@@ -219,8 +219,20 @@ class AccioScenario(SiteScenario):
                     + self._diagnose(page)
                 ),
             )
-        search.fill("")
-        search.fill(employee.name)  # ag-grid 퀵필터: input 이벤트로 필터됨
+        # AG Grid '결과 내 검색'은 실제 키 입력 이벤트로 필터된다.
+        # fill()은 값만 넣어 필터가 안 먹을 수 있으므로 한 글자씩 타이핑한다.
+        try:
+            search.click()
+            search.fill("")
+            search.press_sequentially(employee.name, delay=60)
+        except Exception:
+            search.fill(employee.name)
+        # 프레임워크가 input/change 를 놓쳤을 때를 대비해 한 번 더 신호를 준다.
+        for ev in ("input", "change"):
+            try:
+                search.dispatch_event(ev)
+            except Exception:
+                pass
         page.wait_for_timeout(FILTER_SETTLE_MS)
 
         # 4) 이름이 '정확히' 일치하는 줄을 찾는다(부분일치 금지 → 김민 ↔ 김민수 오탐 방지).
@@ -238,11 +250,13 @@ class AccioScenario(SiteScenario):
                 ),
             )
         if row is None:
+            vis = self._visible_names(page)
             return StepResult(
                 ok=False,
                 message=(
                     f"'{employee.name}' 계정을 목록에서 못 찾았어. 이름을 확인하거나 "
-                    "직접 처리해줘. ── 진단: " + self._diagnose(page)
+                    f"직접 처리해줘. ── 지금 화면에 보이는 이름({vis['count']}개): "
+                    f"{vis['sample']} ── 진단: " + self._diagnose(page)
                 ),
             )
 
@@ -326,6 +340,27 @@ class AccioScenario(SiteScenario):
                 "최종 삭제 확정은 안전을 위해 직접 눌러줘."
             ),
         )
+
+    def _visible_names(self, page) -> dict:
+        """현재 그리드에 렌더된 이름 셀 텍스트를 모아 개수/샘플을 돌려준다.
+
+        필터가 먹었는지(목록이 좁혀졌는지) 진단하는 용도.
+        """
+        names = []
+        try:
+            cells = page.locator(NAME_CELL)
+            n = min(cells.count(), 30)
+            for i in range(n):
+                try:
+                    t = (cells.nth(i).inner_text(timeout=500) or "").strip()
+                except Exception:
+                    continue
+                if t:
+                    names.append(t)
+        except Exception:
+            pass
+        sample = ", ".join(names[:12]) + ("..." if len(names) > 12 else "")
+        return {"count": len(names), "sample": sample or "(없음)"}
 
     def _find_exact_row(self, page, name: str):
         """이름이 '정확히' 일치하는 AG Grid 줄(Locator)을 반환한다.
