@@ -142,8 +142,8 @@ def api_mail_import():
     from automation import mailimport
 
     mailbox = os.environ.get("M365_MAILBOX", "").strip()
-    keyword = os.environ.get("MAIL_SUBJECT_KEYWORD", "퇴사").strip() or None
-    sender = os.environ.get("MAIL_SENDER", "").strip() or None
+    keyword = os.environ.get("MAIL_SUBJECT_KEYWORD", "퇴사,퇴직").strip() or None
+    sender = os.environ.get("MAIL_SENDER", "").strip() or None  # 비우면 발신자 안 따짐
     try:
         found = mailimport.import_from_mail(mailbox, keyword, sender)
     except Exception as exc:  # noqa: BLE001

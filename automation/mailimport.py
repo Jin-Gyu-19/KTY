@@ -105,12 +105,15 @@ def import_from_mail(
     if not mailbox:
         raise RuntimeError("읽을 메일함(M365_MAILBOX)이 .env 에 설정되지 않았습니다.")
 
+    # 제목 키워드는 쉼표로 여러 개 지정 가능(하나라도 들어있으면 대상). 예: "퇴사,퇴직"
+    keywords = [k.strip() for k in (subject_keyword or "").split(",") if k.strip()]
+
     messages = client.list_recent_messages(mailbox, top=top)
     found: list[dict] = []
     seen = set()
     for m in messages:
         subject = m.get("subject", "") or ""
-        if subject_keyword and subject_keyword not in subject:
+        if keywords and not any(k in subject for k in keywords):
             continue
         if sender:
             addr = (m.get("from") or {}).get("emailAddress") or {}
