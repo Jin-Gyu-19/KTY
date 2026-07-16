@@ -207,6 +207,14 @@ function renderTargetList(t) {
     const actions = document.createElement("span");
     actions.className = "target-actions";
 
+    const doneBtn = btn("완료 처리", "ghost");
+    doneBtn.title = "이 사람의 모든 시스템을 완료로 표시합니다";
+    doneBtn.onclick = (e) => {
+      e.stopPropagation();
+      if (confirm(`'${tg.name}' 의 모든 시스템을 완료로 표시할까요?`))
+        run(() => api("/api/target/done", "POST", { key: tg.key }));
+    };
+
     const resetBtn = btn("초기화", "ghost");
     resetBtn.title = "이 사람의 진행 기록을 대기 상태로 되돌립니다";
     resetBtn.onclick = () => run(() => api("/api/target/reset", "POST", { key: tg.key }));
@@ -217,6 +225,7 @@ function renderTargetList(t) {
         run(() => api("/api/target/remove", "POST", { key: tg.key }));
     };
 
+    actions.appendChild(doneBtn);
     actions.appendChild(resetBtn);
     actions.appendChild(delBtn);
     row.appendChild(cb);
@@ -354,11 +363,6 @@ function renderChecklist(t) {
     runBtn.disabled = !canRun;
     runBtn.onclick = () => run(() => api(`/api/site/${s.id}/run`, "POST"));
     actions.appendChild(runBtn);
-
-    const doneBtn = btn("완료", "ghost");
-    doneBtn.disabled = site.status === "done";
-    doneBtn.onclick = () => run(() => api(`/api/site/${s.id}/done`, "POST"));
-    actions.appendChild(doneBtn);
 
     if (!isApi) {
       const credBtn = btn(s.has_credentials ? "🔑 저장됨" : "🔑 로그인정보", "ghost");

@@ -365,6 +365,18 @@ def api_target_reset():
     return jsonify({"targets": state.snapshot()})
 
 
+@app.post("/api/target/done")
+def api_target_done_all():
+    """이 대상자(사람)의 모든 시스템을 완료로 표시한다(완료는 사람에게 귀속)."""
+    key = (request.get_json(force=True).get("key") or "").strip()
+    tg = next((t for t in state.snapshot()["targets"] if t["key"] == key), None)
+    if not tg:
+        return jsonify({"error": "대상을 찾지 못했습니다."}), 404
+    for sid in _site_ids():
+        state.set_site(tg["name"], tg["resign_date"], sid, "done", "완료 처리됨")
+    return jsonify({"targets": state.snapshot()})
+
+
 @app.post("/api/targets/clear")
 def api_targets_clear():
     state.clear_all()
