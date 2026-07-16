@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 from .base import Employee, SiteScenario, StepResult
 
@@ -33,19 +34,21 @@ LOGIN_ID_INPUT = "#carbon-text-input"                    # 아이디칸(type=ema
 LOGIN_PW_INPUT = "#password"                             # 비밀번호칸
 LOGIN_BUTTON = "button.mothership-login-view-login-button"  # '로그인' 기본 버튼(눈알 토글과 구분)
 
-# 2) 계정(사용자) 관리 화면
-USER_ADMIN_URL = ""      # 로그인 후 계정관리 목록의 주소(있으면 직접 이동)
-SEARCH_INPUT = ""        # 이름/ID 검색창
-SEARCH_BUTTON = ""       # 검색 실행 버튼
+# 2) 계정(사용자) 관리 화면 — AG Grid 표
+USER_ADMIN_URL = "https://bdo.accio.kr/tools/manage-id"  # 전 직원 목록 화면
+SEARCH_INPUT = "#search-input"   # '결과 내 검색'(타이핑 즉시 필터, 별도 버튼 없음)
+SEARCH_BUTTON = ""               # 검색 버튼 없음(엔터도 불필요)
 
-# 3) 검색 결과 → 삭제
-RESULT_ROW = ""          # 결과 행 셀렉터(이 행 안에 이름/ID 가 보임). has_text=이름 으로 좁힘
-DELETE_BUTTON = ""       # '삭제' 버튼(행 안 또는 상단 툴바)
-# (선택) 삭제가 사이트 자체 모달을 띄우면, 그 모달의 '대상 이름/ID' 셀렉터로 대조
-CONFIRM_MODAL_NAME = ""  # 예: 모달 안 대상 이름이 보이는 요소
+# 3) 검색 결과(AG Grid) → 삭제
+RESULT_ROW = "div[role='row']"                 # 한 줄(row)
+NAME_CELL = "[col-id='name'] span.mold-label"  # 줄 안의 '이름' 텍스트
+ID_CELL = "[col-id='userId']"                  # 줄 안의 '계정(이메일)' — 안전 표시용
+DELETE_BUTTON = "button.cck-icon-button--ghost"  # 줄 안의 빨간 휴지통(삭제)
 
 # 검색창이 뜰 때까지 기다리는 최대 시간(ms)
 SEARCH_READY_MS = 8000
+# 검색어 입력 후 그리드가 필터링될 때까지 대기(ms)
+FILTER_SETTLE_MS = 1200
 
 
 class AccioScenario(SiteScenario):
@@ -203,7 +206,7 @@ class AccioScenario(SiteScenario):
             except Exception:
                 pass
 
-        # 3) 이름/ID 로 검색
+        # 3) '결과 내 검색'에 이름을 넣어 목록을 좁힌다(타이핑 즉시 필터).
         search = page.locator(SEARCH_INPUT).first
         try:
             search.wait_for(state="visible", timeout=SEARCH_READY_MS)
@@ -216,39 +219,66 @@ class AccioScenario(SiteScenario):
                     + self._diagnose(page)
                 ),
             )
-        search.fill(employee.name)
-        if SEARCH_BUTTON:
-            try:
-                page.locator(SEARCH_BUTTON).first.click()
-            except Exception:
-                search.press("Enter")
-        else:
-            search.press("Enter")
+        search.fill("")
+        search.fill(employee.name)  # ag-grid 퀵필터: input 이벤트로 필터됨
+        page.wait_for_timeout(FILTER_SETTLE_MS)
 
-        # 4) 결과 행 — 정확히 1건일 때만 진행(동명이인/오탐 방지)
-        target = page.locator(RESULT_ROW, has_text=employee.name)
+        # 4) 이름이 '정확히' 일치하는 줄을 찾는다(부분일치 금지 → 김민 ↔ 김민수 오탐 방지).
+        row = self._find_exact_row(page, employee.name)
+        if row is None:
+            # 아직 렌더 안 됐을 수 있으니 한 번 더 대기 후 재시도
+            page.wait_for_timeout(1200)
+            row = self._find_exact_row(page, employee.name)
+        if row == "MULTI":
+            return StepResult(
+                ok=False,
+                message=(
+                    f"'{employee.name}'과 이름이 똑같은 계정이 2개 이상이야. "
+                    "안전을 위해 자동 진행을 멈췄어. 화면에서 직접 확인 후 삭제해줘."
+                ),
+            )
+        if row is None:
+            return StepResult(
+                ok=False,
+                message=(
+                    f"'{employee.name}' 계정을 목록에서 못 찾았어. 이름을 확인하거나 "
+                    "직접 처리해줘. ── 진단: " + self._diagnose(page)
+                ),
+            )
+
+        # 안전 표시용: 삭제 대상 계정(이메일)을 읽어 메시지에 함께 보여준다.
+        acct = ""
         try:
-            target.first.wait_for(state="visible", timeout=15000)
+            acct = (row.locator(ID_CELL).first.inner_text(timeout=2000) or "").strip()
         except Exception:
+            acct = ""
+        who = f"{employee.name}" + (f" / {acct}" if acct else "")
+
+        # 5) 그 줄의 휴지통(삭제) 버튼을 확인한다(줄당 정확히 1개여야 함).
+        delete_btn = row.locator(DELETE_BUTTON)
+        if delete_btn.count() != 1:
             return StepResult(
                 ok=False,
                 message=(
-                    f"'{employee.name}' 검색 결과가 없어. 이름을 확인하거나 직접 처리해줘."
-                ),
-            )
-        count = target.count()
-        if count != 1:
-            return StepResult(
-                ok=False,
-                message=(
-                    f"'{employee.name}' 검색 결과가 {count}건이야. 안전을 위해 자동 진행을 "
-                    "멈췄어. 직접 확인 후 삭제해줘."
+                    f"'{who}' 줄에서 삭제 버튼을 정확히 못 찾았어"
+                    f"(발견 {delete_btn.count()}개). 안전을 위해 멈췄어. 직접 삭제해줘."
                 ),
             )
 
-        # 5) 삭제 버튼 클릭 — 단, 확인창은 절대 승인하지 않는다.
-        #    사이트가 브라우저 기본 confirm 을 띄우면 취소(dismiss)하고,
-        #    사이트 자체 모달을 띄우면 그대로 열어둔 채 멈춘다.
+        # 테스트 모드: 대상만 확인하고 실제로 누르지는 않는다(확인창도 안 띄움).
+        if getattr(self, "test_mode", False):
+            return StepResult(
+                ok=True,
+                awaiting=False,
+                message=(
+                    f"[테스트] '{who}' 계정을 찾았고 삭제 버튼도 확인했어 → "
+                    "실제로는 누르지 않음(테스트라 삭제 안 함)."
+                ),
+            )
+
+        # 휴지통 클릭 — 단, 확인창은 절대 승인하지 않는다.
+        #   브라우저 기본 confirm 이면 취소(dismiss)하고,
+        #   사이트 자체 모달이면 그대로 열어둔 채 멈춘다(사람이 최종 확인).
         confirm_seen = {"native": False, "msg": ""}
 
         def _on_dialog(d):
@@ -261,11 +291,8 @@ class AccioScenario(SiteScenario):
 
         page.on("dialog", _on_dialog)
 
-        delete_btn = target.locator(DELETE_BUTTON)
-        if delete_btn.count() == 0:
-            delete_btn = page.locator(DELETE_BUTTON)  # 상단 툴바형이면 행 밖에 있음
         try:
-            target.first.click()  # 행 선택(툴바형 삭제 대비)
+            delete_btn.first.scroll_into_view_if_needed(timeout=2000)
         except Exception:
             pass
         try:
@@ -273,7 +300,7 @@ class AccioScenario(SiteScenario):
         except Exception:
             return StepResult(
                 ok=False,
-                message="삭제 버튼을 찾지 못했어. 화면에서 직접 삭제해줘. ── 진단: "
+                message="삭제 버튼 클릭에 실패했어. 화면에서 직접 삭제해줘. ── 진단: "
                 + self._diagnose(page),
             )
         page.wait_for_timeout(800)
@@ -285,9 +312,9 @@ class AccioScenario(SiteScenario):
                 ok=True,
                 awaiting=True,
                 message=(
-                    f"'{employee.name}' 삭제 버튼까지 눌렀고, 확인창"
+                    f"'{who}' 삭제 버튼을 눌렀고, 확인창"
                     + (f"('{note}')" if note else "")
-                    + "은 안전을 위해 자동 취소했어. 삭제를 확정하려면 삭제를 다시 눌러 "
+                    + "은 안전을 위해 자동 취소했어. 삭제를 확정하려면 그 줄 휴지통을 다시 눌러 "
                     "[확인]을 직접 눌러줘."
                 ),
             )
@@ -295,7 +322,29 @@ class AccioScenario(SiteScenario):
             ok=True,
             awaiting=True,
             message=(
-                f"'{employee.name}' 삭제 확인창 직전까지 진행했어. "
+                f"'{who}' 삭제 확인창 직전까지 진행했어. 대상이 맞는지 확인하고, "
                 "최종 삭제 확정은 안전을 위해 직접 눌러줘."
             ),
         )
+
+    def _find_exact_row(self, page, name: str):
+        """이름이 '정확히' 일치하는 AG Grid 줄(Locator)을 반환한다.
+
+        - 정확히 1개면 그 줄의 Locator, 0개면 None, 2개 이상이면 "MULTI".
+        - 위치(index)가 아니라 '이름 셀이 정확히 일치하는 내용' 기준으로 잡는다.
+          (가상 스크롤로 DOM 이 재사용돼도 안전하게 재조회되도록)
+        - 부분일치(김민 ↔ 김민수)는 정규식 ^이름$ 로 막는다.
+        """
+        exact = re.compile(r"^\s*" + re.escape(name.strip()) + r"\s*$")
+        rows = page.locator(RESULT_ROW).filter(
+            has=page.locator(NAME_CELL, has_text=exact)
+        )
+        try:
+            cnt = rows.count()
+        except Exception:
+            return None
+        if cnt == 0:
+            return None
+        if cnt > 1:
+            return "MULTI"
+        return rows.first
