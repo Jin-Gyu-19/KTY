@@ -267,6 +267,21 @@ document.getElementById("uploadBtn").onclick = async () => {
 
 document.getElementById("historyBtn").onclick = toggleHistory;
 
+document.getElementById("runAllBtn").onclick = async () => {
+  const msg =
+    "목록의 모든 대상자를 순서대로 처리합니다.\n" +
+    "먼저 [열기]로 브라우저를 열고 로그인해 두어야 합니다.\n계속할까요?";
+  if (!confirm(msg)) return;
+  try {
+    const r = await api("/api/run-all", "POST");
+    await refresh();
+    if (r && r.message) alert(r.message);
+  } catch (e) {
+    alert(e.message);
+    await refresh();
+  }
+};
+
 document.getElementById("testMode").onchange = (e) => {
   api("/api/testmode", "POST", { on: e.target.checked }).catch((err) =>
     alert(err.message)

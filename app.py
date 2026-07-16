@@ -259,6 +259,55 @@ def api_run(site_id: str):
         return jsonify({"error": str(exc)}), 500
 
 
+@app.post("/api/run-all")
+def api_run_all():
+    """목록의 모든 대상자를 순서대로 처리한다(브라우저는 미리 [열기]+로그인 필요).
+
+    - 테스트 모드: 각자 팝업까지 확인 후 닫고 다음 사람으로 (끝까지 자동).
+    - 실제 모드: 사람이 [완료]해야 하는 지점(awaiting)에서 멈추고 안내한다.
+    """
+    order = list(registry.all_scenarios())
+    processed = 0
+    errors = []
+    for tg in state.snapshot()["targets"]:
+        emp = Employee(name=tg["name"], resign_date=tg["resign_date"])
+        for s in order:
+            if tg["sites"].get(s.id, {}).get("status") == "done":
+                continue
+            try:
+                s.test_mode = _TEST_MODE["on"]
+                if s.kind == "api":
+                    result = s.run_api(emp)
+                else:
+                    controller.open_site(s.url)  # 로그인된 브라우저 재사용
+                    result = controller.run_scenario(s, emp)
+            except Exception as exc:  # noqa: BLE001
+                state.set_site(emp.name, emp.resign_date, s.id, "error", str(exc))
+                errors.append(f"{emp.name}·{s.name}")
+                continue
+
+            status = "error" if not result.ok else ("awaiting" if result.awaiting else "done")
+            state.set_site(emp.name, emp.resign_date, s.id, status, result.message)
+            processed += 1
+            if status == "awaiting":
+                return jsonify(
+                    {
+                        "targets": state.snapshot(),
+                        "message": (
+                            f"{emp.name} · {s.name}: [완료]가 필요해 멈췄습니다. "
+                            "브라우저에서 완료한 뒤 다시 [전체 순차 처리]를 눌러 이어가세요."
+                        ),
+                    }
+                )
+            if status == "error":
+                errors.append(f"{emp.name}·{s.name}")
+
+    msg = f"완료 — {processed}건 처리했습니다."
+    if errors:
+        msg += f" (오류/미완: {len(errors)}건 — {', '.join(errors[:5])}{' 외' if len(errors) > 5 else ''})"
+    return jsonify({"targets": state.snapshot(), "message": msg})
+
+
 @app.post("/api/site/<site_id>/done")
 def api_done(site_id: str):
     emp = _current_employee()

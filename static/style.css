@@ -70,6 +70,7 @@ button:disabled { opacity: .5; cursor: default; }
 
 .section-title { font-size: 15px; margin: 18px 0 8px; }
 .list-head { display: flex; align-items: center; justify-content: space-between; }
+.head-actions { display: flex; gap: 8px; }
 .testmode {
   display: flex; flex-direction: row; align-items: center; gap: 8px;
   margin-top: 12px; font-size: 13px; color: var(--warn);
