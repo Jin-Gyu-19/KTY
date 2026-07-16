@@ -800,4 +800,30 @@ document.getElementById("testMode").onchange = (e) => {
   );
 };
 
+// ----- 테마(스킨) 전환: 기본 ↔ Glass/Aurora. 배치는 그대로, 색만 바뀜 -----
+function applyTheme(name) {
+  const aurora = name === "aurora";
+  document.body.classList.toggle("aurora", aurora);
+  try {
+    localStorage.setItem("kty_theme", aurora ? "aurora" : "default");
+  } catch (_) {
+    /* 무시 */
+  }
+  const d = document.getElementById("themeDefault");
+  const a = document.getElementById("themeAurora");
+  if (d) d.classList.toggle("on", !aurora);
+  if (a) a.classList.toggle("on", aurora);
+}
+document.getElementById("themeDefault").onclick = () => applyTheme("default");
+document.getElementById("themeAurora").onclick = () => applyTheme("aurora");
+applyTheme(
+  (() => {
+    try {
+      return localStorage.getItem("kty_theme") || "default";
+    } catch (_) {
+      return "default";
+    }
+  })()
+);
+
 refresh().then(autoImport);
