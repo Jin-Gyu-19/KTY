@@ -16,19 +16,31 @@ from html.parser import HTMLParser
 from .integrations.graph import GraphClient
 
 
+_BLOCK_TAGS = {"br", "div", "p", "li", "tr", "table", "h1", "h2", "h3"}
+
+
 class _Stripper(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self._parts: list[str] = []
 
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag in _BLOCK_TAGS:
+            self._parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _BLOCK_TAGS:
+            self._parts.append("\n")
+
     def handle_data(self, data: str) -> None:
         self._parts.append(data)
 
     def text(self) -> str:
-        return " ".join(self._parts)
+        return "".join(self._parts)
 
 
 def _strip_html(html: str) -> str:
+    """HTML 을 텍스트로. 블록 태그(div/br/p 등)는 줄바꿈으로 바꿔 줄 구조를 살린다."""
     s = _Stripper()
     try:
         s.feed(html or "")
