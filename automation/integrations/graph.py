@@ -117,7 +117,11 @@ class GraphClient:
         r.raise_for_status()
 
     def list_recent_messages(
-        self, mailbox: str, top: int = 100, since_iso: str | None = None
+        self,
+        mailbox: str,
+        top: int = 100,
+        since_iso: str | None = None,
+        on_page=None,
     ) -> list[dict]:
         """받은편지함의 최근 메일을 가져온다(Mail.Read 권한 필요).
 
@@ -125,6 +129,8 @@ class GraphClient:
         받은편지함이 많아도 조회 기간(since_iso)까지는 확실히 닿도록 페이지를
         따라가며(@odata.nextLink) 가져온다. top 은 '전체 상한'으로 쓴다.
         기간·제목 필터는 호출부에서 파이썬으로 처리한다(가장 확실).
+
+        on_page(fetched, cap): 페이지를 한 번 가져올 때마다 진행상황을 알려준다.
         """
         import requests
 
@@ -141,6 +147,11 @@ class GraphClient:
             data = r.json()
             page = data.get("value", [])
             out.extend(page)
+            if on_page:
+                try:
+                    on_page(len(out), top)
+                except Exception:
+                    pass
             # 조회 기간을 지났거나(내림차순) 상한에 닿으면 그만
             if since_iso and page and (page[-1].get("receivedDateTime", "") < since_iso):
                 break

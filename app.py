@@ -47,6 +47,47 @@ _ENABLED_SITES = {s.id for s in registry.all_scenarios()}
 # 앱 시작 후 메일 자동 불러오기를 1회만 하기 위한 플래그
 _AUTO_IMPORTED = {"done": False}
 
+# 메일 읽기 백그라운드 작업(진행상황 폴링용). 한 번에 하나만 돈다.
+import threading  # noqa: E402
+
+_MAIL_LOCK = threading.Lock()
+_MAIL_JOB = {
+    "running": False,
+    "phase": "idle",   # idle | reading | done
+    "fetched": 0,
+    "cap": 0,
+    "kind": None,      # import | list
+    "result": None,
+    "error": None,
+}
+
+
+def _mail_env():
+    """.env 를 다시 읽어(즉시반영) 메일 조회 파라미터를 돌려준다."""
+    import os
+
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+            override=True,
+        )
+    except Exception:
+        pass
+
+    mailbox = os.environ.get("M365_MAILBOX", "").strip()
+    # 핵심 키워드는 코드에 항상 포함(.py는 UTF-8이라 안 깨짐). .env 값은 추가로 합친다.
+    keyword = (os.environ.get("MAIL_SUBJECT_KEYWORD", "") or "").strip() + ",퇴사,퇴직,퇴사자"
+    # 발신자는 영문(이메일 주소)일 때만 필터로 쓴다. 한글 이름은 인코딩 문제로 무시.
+    _s = os.environ.get("MAIL_SENDER", "").strip()
+    sender = _s if (_s and _s.isascii()) else None
+    try:
+        since_days = int(os.environ.get("MAIL_SINCE_DAYS", "90") or "90")
+    except ValueError:
+        since_days = 90
+    return mailbox, keyword, sender, since_days
+
 
 def _date_block(resign_date: str) -> str | None:
     """퇴사일이 아직 안 됐으면 안내 문구를, 처리 가능하면 None 을 돌려준다."""
@@ -62,42 +103,84 @@ def _date_block(resign_date: str) -> str | None:
     return None
 
 
-def _run_mail_import():
-    """메일에서 퇴사자를 읽어 대상자로 등록한다. (added, duplicates) 반환."""
-    import os
-
+def _do_mail_import(progress=None) -> dict:
+    """메일을 읽어 새 퇴사자는 등록하고, 중복은 사용자 확인용으로 모아 돌려준다."""
     from automation import mailimport
 
-    try:
-        from dotenv import load_dotenv
+    mailbox, keyword, sender, since_days = _mail_env()
+    found, stats = mailimport.import_from_mail(
+        mailbox, keyword, sender, since_days=since_days, progress=progress
+    )
 
-        load_dotenv(
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
-            override=True,
-        )
-    except Exception:
-        pass
-
-    mailbox = os.environ.get("M365_MAILBOX", "").strip()
-    keyword = (os.environ.get("MAIL_SUBJECT_KEYWORD", "") or "").strip() + ",퇴사,퇴직,퇴사자"
-    _s = os.environ.get("MAIL_SENDER", "").strip()
-    sender = _s if (_s and _s.isascii()) else None
-    try:
-        since_days = int(os.environ.get("MAIL_SINCE_DAYS", "90") or "90")
-    except ValueError:
-        since_days = 90
-
-    found, _stats = mailimport.import_from_mail(mailbox, keyword, sender, since_days=since_days)
-    existing = {tg["name"] for tg in state.snapshot()["targets"]}
+    # 이미 목록에 있는 사람(이름 기준)은 자동 추가하지 않고 사용자가 결정하도록 넘긴다.
+    existing_names = {tg["name"] for tg in state.snapshot()["targets"]}
     site_ids = _site_ids()
     added, duplicates = [], []
     for t in found:
-        if t["name"] in existing:
+        if t["name"] in existing_names:
             duplicates.append(t)
         else:
             state.add_target(t["name"], t["resign_date"], site_ids)
             added.append(t)
-    return added, duplicates
+
+    if found:
+        parts = [f"메일({since_days}일 이내)에서 {len(added)}명 등록"]
+        if duplicates:
+            parts.append(f"중복 {len(duplicates)}명은 확인 필요")
+        message = " · ".join(parts)
+    else:
+        # 진단: 어디서 걸렸는지 알려준다
+        message = (
+            f"등록 대상 없음 — 최근 {since_days}일 메일 {stats['total']}건 중 "
+            f"제목매칭 {stats['subject_matched']}건, 이름·퇴사일 추출 {stats['parsed']}건."
+        )
+        if stats["subject_matched"] == 0:
+            message += f" [키워드={stats.get('keywords')}]"
+            toi = stats.get("subjects_with_toi") or []
+            if toi:
+                message += "\n'퇴' 들어간 제목: " + " | ".join(toi)
+            if stats.get("recent_subjects"):
+                message += "\n읽은 제목: " + " | ".join(stats["recent_subjects"])
+        elif stats["matched_no_parse"]:
+            message += " 파싱 실패 제목: " + ", ".join(stats["matched_no_parse"])
+
+    return {
+        "targets": state.snapshot(),
+        "added": added,
+        "duplicates": duplicates,
+        "message": message,
+    }
+
+
+def _run_mail_import():
+    """메일에서 퇴사자를 읽어 대상자로 등록한다. (added, duplicates) 반환(자동용)."""
+    r = _do_mail_import()
+    return r["added"], r["duplicates"]
+
+
+def _mail_progress(fetched: int, cap: int) -> None:
+    _MAIL_JOB["fetched"] = fetched
+    _MAIL_JOB["cap"] = cap
+
+
+def _mail_worker(kind: str) -> None:
+    """백그라운드에서 메일을 읽고 결과를 _MAIL_JOB 에 담는다(진행상황 폴링용)."""
+    try:
+        if kind == "list":
+            from automation import mailimport
+
+            mailbox, keyword, sender, since_days = _mail_env()
+            rows = mailimport.debug_list(
+                mailbox, keyword, sender, since_days=since_days, progress=_mail_progress
+            )
+            _MAIL_JOB["result"] = {"messages": rows}
+        else:
+            _MAIL_JOB["result"] = _do_mail_import(progress=_mail_progress)
+    except Exception as exc:  # noqa: BLE001
+        _MAIL_JOB["error"] = str(exc)
+    finally:
+        _MAIL_JOB["running"] = False
+        _MAIL_JOB["phase"] = "done"
 
 
 def _scenario_list() -> list[dict]:
@@ -221,112 +304,46 @@ def api_target_remove():
     return jsonify({"targets": state.snapshot()})
 
 
-@app.post("/api/mail/import")
-def api_mail_import():
-    """M365 메일에서 퇴사 공지를 읽어 대상자 목록에 등록한다(실제 처리는 사람이)."""
-    import os
-
-    from automation import mailimport
-
-    # .env 를 다시 읽어 수정사항을 재시작 없이 즉시 반영한다.
-    try:
-        from dotenv import load_dotenv
-
-        load_dotenv(
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
-            override=True,
+@app.post("/api/mail/start")
+def api_mail_start():
+    """메일 읽기를 백그라운드로 시작한다. 진행상황은 /api/mail/progress 로 폴링."""
+    kind = (request.get_json(force=True, silent=True) or {}).get("kind") or "import"
+    if kind not in ("import", "list"):
+        kind = "import"
+    with _MAIL_LOCK:
+        if _MAIL_JOB["running"]:
+            return jsonify({"running": True, "already": True, "kind": _MAIL_JOB["kind"]})
+        _MAIL_JOB.update(
+            running=True, phase="reading", fetched=0, cap=0,
+            kind=kind, result=None, error=None,
         )
-    except Exception:
-        pass
+    threading.Thread(target=_mail_worker, args=(kind,), daemon=True).start()
+    return jsonify({"started": True, "kind": kind})
 
-    mailbox = os.environ.get("M365_MAILBOX", "").strip()
-    # 핵심 키워드는 코드에 항상 포함(.py는 UTF-8이라 안 깨짐). .env 값은 추가로 합친다.
-    keyword = (os.environ.get("MAIL_SUBJECT_KEYWORD", "") or "").strip() + ",퇴사,퇴직,퇴사자"
-    # 발신자는 영문(이메일 주소)일 때만 필터로 쓴다. 한글 이름은 인코딩 문제로 무시.
-    _s = os.environ.get("MAIL_SENDER", "").strip()
-    sender = _s if (_s and _s.isascii()) else None
-    try:
-        since_days = int(os.environ.get("MAIL_SINCE_DAYS", "90") or "90")
-    except ValueError:
-        since_days = 90
-    try:
-        found, stats = mailimport.import_from_mail(
-            mailbox, keyword, sender, since_days=since_days
-        )
-    except Exception as exc:  # noqa: BLE001
-        return jsonify({"error": str(exc)}), 400
 
-    # 이미 목록에 있는 사람(이름 기준)은 자동 추가하지 않고, 사용자가 결정하도록 넘긴다.
-    existing_names = {tg["name"] for tg in state.snapshot()["targets"]}
-    site_ids = _site_ids()
-    added, duplicates = [], []
-    for t in found:
-        if t["name"] in existing_names:
-            duplicates.append(t)
-        else:
-            state.add_target(t["name"], t["resign_date"], site_ids)
-            added.append(t)
-
-    if found:
-        parts = [f"메일({since_days}일 이내)에서 {len(added)}명 등록"]
-        if duplicates:
-            parts.append(f"중복 {len(duplicates)}명은 확인 필요")
-        message = " · ".join(parts)
+@app.get("/api/mail/progress")
+def api_mail_progress():
+    """메일 읽기 진행상황(퍼센트)과, 끝났으면 결과를 함께 돌려준다."""
+    j = _MAIL_JOB
+    if j["cap"]:
+        pct = min(99, int(j["fetched"] * 100 / j["cap"]))
     else:
-        # 진단: 어디서 걸렸는지 알려준다
-        message = (
-            f"등록 대상 없음 — 최근 {since_days}일 메일 {stats['total']}건 중 "
-            f"제목매칭 {stats['subject_matched']}건, 이름·퇴사일 추출 {stats['parsed']}건."
-        )
-        if stats["subject_matched"] == 0:
-            message += f" [키워드={stats.get('keywords')}]"
-            toi = stats.get("subjects_with_toi") or []
-            if toi:
-                message += "\n'퇴' 들어간 제목: " + " | ".join(toi)
-            if stats.get("recent_subjects"):
-                message += "\n읽은 제목: " + " | ".join(stats["recent_subjects"])
-        elif stats["matched_no_parse"]:
-            message += " 파싱 실패 제목: " + ", ".join(stats["matched_no_parse"])
+        pct = 5 if j["running"] else 0
+    done = (not j["running"]) and j["phase"] == "done"
+    if done and not j["error"]:
+        pct = 100
     return jsonify(
         {
-            "targets": state.snapshot(),
-            "added": added,
-            "duplicates": duplicates,
-            "message": message,
+            "running": j["running"],
+            "phase": j["phase"],
+            "fetched": j["fetched"],
+            "cap": j["cap"],
+            "percent": pct,
+            "kind": j["kind"],
+            "error": j["error"],
+            "result": j["result"] if done else None,
         }
     )
-
-
-@app.post("/api/mail/list")
-def api_mail_list():
-    """받은편지함 최근 메일 목록을 판정결과와 함께 돌려준다(모달 확인용)."""
-    import os
-
-    from automation import mailimport
-
-    try:
-        from dotenv import load_dotenv
-
-        load_dotenv(
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
-            override=True,
-        )
-    except Exception:
-        pass
-
-    mailbox = os.environ.get("M365_MAILBOX", "").strip()
-    keyword = (os.environ.get("MAIL_SUBJECT_KEYWORD", "") or "").strip() + ",퇴사,퇴직,퇴사자"
-    _s = os.environ.get("MAIL_SENDER", "").strip()
-    sender = _s if (_s and _s.isascii()) else None
-    try:
-        since_days = int(os.environ.get("MAIL_SINCE_DAYS", "90") or "90")
-    except ValueError:
-        since_days = 90
-    try:
-        rows = mailimport.debug_list(mailbox, keyword, sender, since_days=since_days)
-    except Exception as exc:  # noqa: BLE001
-        return jsonify({"error": str(exc)}), 400
-    return jsonify({"messages": rows})
 
 
 @app.post("/api/target/reset")

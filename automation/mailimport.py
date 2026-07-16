@@ -134,6 +134,7 @@ def _scan(
     sender: str | None,
     since_days: int,
     top: int,
+    progress=None,
 ) -> tuple[list[dict], list[str]]:
     """받은편지함을 훑어 메일별 판정 결과 행 리스트를 만든다(단일 로직).
 
@@ -158,8 +159,12 @@ def _scan(
             "%Y-%m-%dT%H:%M:%SZ"
         )
 
+    msgs = client.list_recent_messages(
+        mailbox, top=top, since_iso=since_iso, on_page=progress
+    )
+
     rows = []
-    for m in client.list_recent_messages(mailbox, top=top, since_iso=since_iso):
+    for m in msgs:
         subj = m.get("subject", "") or ""
         recv = m.get("receivedDateTime", "") or ""
         addr = (m.get("from") or {}).get("emailAddress") or {}
@@ -203,9 +208,10 @@ def debug_list(
     sender: str | None = None,
     since_days: int = 90,
     top: int = 400,
+    progress=None,
 ) -> list[dict]:
     """받은편지함 최근 메일을 각 메일별 판정 결과와 함께 돌려준다(진단/확인용)."""
-    rows, _ = _scan(mailbox, subject_keyword, sender, since_days, top)
+    rows, _ = _scan(mailbox, subject_keyword, sender, since_days, top, progress)
     return rows
 
 
@@ -215,9 +221,10 @@ def import_from_mail(
     sender: str | None = None,
     since_days: int = 90,
     top: int = 400,
+    progress=None,
 ) -> tuple[list[dict], dict]:
     """메일함을 훑어 조건에 맞는 퇴사 공지에서 퇴사자 목록을 만든다(모달과 동일 로직)."""
-    rows, keywords = _scan(mailbox, subject_keyword, sender, since_days, top)
+    rows, keywords = _scan(mailbox, subject_keyword, sender, since_days, top, progress)
 
     found: list[dict] = []
     seen = set()

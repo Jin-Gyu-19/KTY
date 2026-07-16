@@ -45,7 +45,7 @@ async function autoImport() {
     const r = await api("/api/mail/auto-import", "POST");
     if (r && r.message) {
       await refresh();
-      alert("🔔 " + r.message);
+      notice("🔔 메일에서 자동으로 불러왔습니다", r.message);
     }
   } catch (e) {
     /* 미설정/오류는 조용히 */
@@ -407,10 +407,10 @@ async function runAllWith(keys) {
     try {
       const r = await api("/api/run-all", "POST", keys ? { keys } : {});
       await refresh();
-      if (r && r.message) alert(r.message);
+      if (r && r.message) notice("순차 처리 결과", r.message);
     } catch (e) {
-      alert(e.message);
       await refresh();
+      notice("순차 처리 오류", e.message);
     }
   });
 }
@@ -486,78 +486,203 @@ async function busy(btn, label, fn) {
   }
 }
 
-document.getElementById("mailListBtn").onclick = (e) =>
-  busy(e.target, "읽는 중…", async () => {
-    let data;
-    try {
-      data = await api("/api/mail/list", "POST");
-    } catch (err) {
-      alert(err.message);
-      return;
-    }
-    const rows = data.messages || [];
-    const wrap = document.createElement("div");
-    const summary = document.createElement("div");
-    summary.className = "muted";
-    summary.style.margin = "4px 6px 10px";
-    const hit = rows.filter((r) => r.in_window && r.subject_match).length;
-    const got = rows.filter((r) => r.parsed).length;
-    summary.textContent = `받은편지함 최근 ${rows.length}건 · 조건 매칭 ${hit}건 · 추출 성공 ${got}건`;
-    wrap.appendChild(summary);
-    rows.forEach((r, i) => {
-      const row = document.createElement("div");
-      row.className = "mrow";
-      let pill;
-      if (r.parsed)
-        pill = `<span class="pill ok">✓ ${r.parsed}</span>`;
-      else if (r.in_window && r.subject_match)
-        pill = `<span class="pill hit">제목매칭·추출실패</span>`;
-      else if (!r.in_window)
-        pill = `<span class="pill no">기간밖</span>`;
-      else pill = `<span class="pill no">제목불일치</span>`;
-      row.innerHTML =
-        `<span class="num">${i + 1}</span>` +
-        `<span class="mmain"><div class="msub">${r.subject || "(제목없음)"}</div>` +
-        `<div class="mmeta">${r.sender} · ${r.received}</div></span>` +
-        pill;
-      wrap.appendChild(row);
-    });
-    if (!rows.length) {
-      const p = document.createElement("p");
-      p.className = "muted";
-      p.textContent = "받은편지함에서 읽은 메일이 없습니다.";
-      wrap.appendChild(p);
-    }
-    showModal("읽은 메일 목록 (받은편지함)", wrap);
+// ----- 알림 모달(알림창 대신) -----
+function notice(title, text) {
+  const n = document.createElement("div");
+  n.className = "notice-body";
+  n.textContent = text || "";
+  showModal(title, n);
+}
+
+// ----- 읽은 메일 목록 노드 만들기 -----
+function buildMailListNode(rows) {
+  const wrap = document.createElement("div");
+  const summary = document.createElement("div");
+  summary.className = "muted";
+  summary.style.margin = "4px 6px 10px";
+  const hit = rows.filter((r) => r.in_window && r.subject_match).length;
+  const got = rows.filter((r) => r.parsed).length;
+  summary.textContent = `받은편지함 최근 ${rows.length}건 · 조건 매칭 ${hit}건 · 추출 성공 ${got}건`;
+  wrap.appendChild(summary);
+  rows.forEach((r, i) => {
+    const row = document.createElement("div");
+    row.className = "mrow";
+    let pill;
+    if (r.parsed) pill = `<span class="pill ok">✓ ${r.parsed}</span>`;
+    else if (r.in_window && r.subject_match)
+      pill = `<span class="pill hit">제목매칭·추출실패</span>`;
+    else if (!r.in_window) pill = `<span class="pill no">기간밖</span>`;
+    else pill = `<span class="pill no">제목불일치</span>`;
+    row.innerHTML =
+      `<span class="num">${i + 1}</span>` +
+      `<span class="mmain"><div class="msub">${r.subject || "(제목없음)"}</div>` +
+      `<div class="mmeta">${r.sender} · ${r.received}</div></span>` +
+      pill;
+    wrap.appendChild(row);
+  });
+  if (!rows.length) {
+    const p = document.createElement("p");
+    p.className = "muted";
+    p.textContent = "받은편지함에서 읽은 메일이 없습니다.";
+    wrap.appendChild(p);
+  }
+  return wrap;
+}
+
+// ----- 중복 사용자 한 번에 확인하는 모달 -----
+function showDuplicatesModal(dups, message) {
+  const wrap = document.createElement("div");
+  const info = document.createElement("p");
+  info.className = "muted";
+  info.style.margin = "4px 6px 10px";
+  info.textContent =
+    `아래 ${dups.length}명은 이미 목록에 있습니다. ` +
+    "메일 정보로 추가/갱신할 사람을 선택한 뒤 [선택 적용]을 누르세요.";
+  wrap.appendChild(info);
+
+  const boxes = [];
+  dups.forEach((d) => {
+    const row = document.createElement("label");
+    row.className = "mrow";
+    row.style.cursor = "pointer";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = true;
+    cb.style.width = "auto";
+    boxes.push({ cb, d });
+    const main = document.createElement("span");
+    main.className = "mmain";
+    main.innerHTML =
+      `<div class="msub">${d.name} <span class="muted">${d.resign_date || ""}</span></div>` +
+      `<div class="mmeta">${d.subject || ""}</div>`;
+    row.appendChild(cb);
+    row.appendChild(main);
+    wrap.appendChild(row);
   });
 
-document.getElementById("mailBtn").onclick = (e) =>
-  busy(e.target, "메일 읽는 중…", async () => {
-    let r;
-    try {
-      r = await api("/api/mail/import", "POST");
-    } catch (err) {
-      alert(err.message);
-      return;
-    }
-    await refresh();
-    // 중복(이미 목록에 있는 사람)은 한 명씩 물어본다.
-    for (const d of r.duplicates || []) {
-      const ok = confirm(
-        `'${d.name}' (퇴사일 ${d.resign_date})은 이미 목록에 있습니다.\n` +
-          `메일의 정보로 추가/갱신할까요?`
-      );
-      if (ok) {
-        try {
-          await api("/api/target", "POST", { name: d.name, resign_date: d.resign_date });
-        } catch (err) {
-          alert(err.message);
-        }
+  const bar = document.createElement("div");
+  bar.className = "bulk-bar";
+  bar.style.marginTop = "12px";
+  const left = document.createElement("span");
+  left.className = "muted";
+  const right = document.createElement("div");
+  right.className = "bulk-actions";
+  const apply = btn("선택 적용", "");
+  apply.onclick = async () => {
+    const chosen = boxes.filter((b) => b.cb.checked);
+    for (const b of chosen) {
+      try {
+        await api("/api/target", "POST", {
+          name: b.d.name,
+          resign_date: b.d.resign_date,
+        });
+      } catch (e) {
+        /* 개별 실패는 건너뜀 */
       }
     }
     await refresh();
-    if (r && r.message) alert(r.message);
-  });
+    notice("중복 확인", `${chosen.length}명을 추가/갱신했습니다.`);
+  };
+  const close = btn("닫기", "ghost");
+  close.onclick = () => {
+    document.getElementById("modal").style.display = "none";
+  };
+  right.appendChild(apply);
+  right.appendChild(close);
+  bar.appendChild(left);
+  bar.appendChild(right);
+  wrap.appendChild(bar);
+
+  showModal(`중복 확인 (${dups.length}명)`, wrap);
+}
+
+// ----- 진행상황 바 노드 -----
+function buildProgress(labelText) {
+  const w = document.createElement("div");
+  w.style.padding = "14px 6px";
+  const lab = document.createElement("div");
+  lab.className = "muted";
+  lab.textContent = labelText;
+  lab.style.marginBottom = "10px";
+  const barWrap = document.createElement("div");
+  barWrap.className = "progress";
+  const bar = document.createElement("div");
+  bar.className = "progress-fill";
+  barWrap.appendChild(bar);
+  const pctLab = document.createElement("div");
+  pctLab.className = "muted";
+  pctLab.style.marginTop = "8px";
+  pctLab.textContent = "0%";
+  w.appendChild(lab);
+  w.appendChild(barWrap);
+  w.appendChild(pctLab);
+  return { node: w, bar, pctLab, lab };
+}
+
+// ----- 메일 읽기(백그라운드) + 진행상황 폴링 -----
+let mailPollTimer = null;
+
+async function runMailJob(kind) {
+  if (mailPollTimer) {
+    clearTimeout(mailPollTimer);
+    mailPollTimer = null;
+  }
+  try {
+    await api("/api/mail/start", "POST", { kind });
+  } catch (e) {
+    notice("메일 읽기", e.message);
+    return;
+  }
+  const title = kind === "list" ? "읽은 메일 불러오는 중…" : "메일에서 퇴사자 찾는 중…";
+  const p = buildProgress("받은편지함을 읽는 중입니다…");
+  showModal(title, p.node);
+
+  const tick = async () => {
+    let s;
+    try {
+      s = await api("/api/mail/progress");
+    } catch (e) {
+      p.lab.textContent = "진행상황 확인 실패: " + e.message;
+      return;
+    }
+    const pct = s.percent || 0;
+    p.bar.style.width = pct + "%";
+    p.pctLab.textContent = pct + "%" + (s.fetched ? ` · ${s.fetched}건 읽음` : "");
+    if (!s.running && s.error) {
+      notice("메일 읽기 오류", s.error);
+      return;
+    }
+    if (!s.running && s.result !== null) {
+      p.bar.style.width = "100%";
+      p.pctLab.textContent = "100% · 완료";
+      await finishMailJob(kind, s.result);
+      return;
+    }
+    mailPollTimer = setTimeout(tick, 400);
+  };
+  tick();
+}
+
+async function finishMailJob(kind, result) {
+  if (kind === "list") {
+    showModal("읽은 메일 목록 (받은편지함)", buildMailListNode(result.messages || []));
+    return;
+  }
+  // import
+  await refresh();
+  const dups = result.duplicates || [];
+  if (dups.length) {
+    showDuplicatesModal(dups, result.message);
+  } else {
+    notice(
+      "메일에서 퇴사자 가져오기",
+      result.message || "새로 등록된 퇴사자가 없습니다."
+    );
+  }
+}
+
+document.getElementById("mailListBtn").onclick = () => runMailJob("list");
+document.getElementById("mailBtn").onclick = () => runMailJob("import");
 
 document.getElementById("historyBtn").onclick = toggleHistory;
 
