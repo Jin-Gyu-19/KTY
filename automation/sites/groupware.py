@@ -435,8 +435,24 @@ class GroupwareScenario(SiteScenario):
                 ),
             )
 
-        # ----- 7) 마법사 [다음] 자동 진행 (완료는 사람이) -----
         who = f"{name_in_popup or employee.name}"
+
+        # 테스트 모드: 실제 퇴사 처리 없이 팝업을 바로 닫고 완료로 표시(다음 사람 테스트용)
+        if getattr(self, "test_mode", False):
+            try:
+                popup.close()
+            except Exception:
+                pass
+            return StepResult(
+                ok=True,
+                awaiting=False,
+                message=(
+                    f"[테스트] '{who}' 검색·선택·퇴사처리 팝업까지 확인 후 팝업을 닫았습니다. "
+                    "실제 퇴사 처리는 하지 않았습니다."
+                ),
+            )
+
+        # ----- 7) 마법사 [다음] 자동 진행 (완료는 사람이) -----
         tail = self._auto_next(popup)
         return StepResult(
             ok=True,

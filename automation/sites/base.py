@@ -55,6 +55,8 @@ class SiteScenario:
     login_required: bool = True
     # 자동으로 최종 제출까지 할지. 기본값 False = 제출 직전에서 멈춘다.
     auto_submit: bool = False
+    # 테스트 모드: 실제 확정 없이 흐름만 확인(팝업 열고 바로 닫기 등). 실행 직전에 설정된다.
+    test_mode: bool = False
 
     # ----- 브라우저 시나리오용 -----
     def run(self, page, employee: Employee) -> StepResult:  # noqa: D401

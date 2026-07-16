@@ -27,6 +27,8 @@ async function refresh() {
   renderTargetList(data.targets);
   renderChecklist(data.targets);
   maybePromptRestore(data.restorable);
+  const tm = document.getElementById("testMode");
+  if (tm) tm.checked = !!data.test_mode;
 }
 
 // 앱을 열 때 이전 작업이 있으면 한 번 물어본다.
@@ -264,5 +266,11 @@ document.getElementById("uploadBtn").onclick = async () => {
 };
 
 document.getElementById("historyBtn").onclick = toggleHistory;
+
+document.getElementById("testMode").onchange = (e) => {
+  api("/api/testmode", "POST", { on: e.target.checked }).catch((err) =>
+    alert(err.message)
+  );
+};
 
 refresh();

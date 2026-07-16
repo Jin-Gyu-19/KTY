@@ -36,6 +36,9 @@ app = Flask(__name__)
 # 앱 시작 시: 이전 세션 작업은 보관함으로 옮기고 빈 화면으로 시작한다.
 state.begin_session()
 
+# 테스트 모드(실제 처리 없이 흐름만 확인). 앱 재시작하면 꺼진다.
+_TEST_MODE = {"on": False}
+
 
 def _scenario_list() -> list[dict]:
     return [
@@ -60,8 +63,16 @@ def api_status():
             "scenarios": _scenario_list(),
             "targets": state.snapshot(),
             "restorable": state.latest_restorable(),
+            "test_mode": _TEST_MODE["on"],
         }
     )
+
+
+@app.post("/api/testmode")
+def api_testmode():
+    data = request.get_json(force=True, silent=True) or {}
+    _TEST_MODE["on"] = bool(data.get("on"))
+    return jsonify({"test_mode": _TEST_MODE["on"]})
 
 
 @app.get("/api/history")
@@ -227,6 +238,7 @@ def api_run(site_id: str):
     if emp is None:
         return jsonify({"error": "먼저 퇴사자를 입력하세요."}), 400
     try:
+        scenario.test_mode = _TEST_MODE["on"]  # 실행 직전 테스트 모드 반영
         if scenario.kind == "api":
             result = scenario.run_api(emp)
         else:
