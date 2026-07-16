@@ -264,7 +264,7 @@ function renderChecklistPreview(listEl) {
           <span class="tag">${s.kind === "api" ? "API" : "브라우저"}</span>
           <span class="badge pending">미리보기</span>
         </div>
-        <div class="msg">대상자를 선택하면 [열기]·[자동 처리]·[완료]가 여기 표시돼요.</div>
+        <div class="msg">대상자를 선택하면 [열기]·[로그인정보]가 여기 표시돼요.</div>
       </div>`;
     listEl.appendChild(row);
   });
@@ -316,10 +316,8 @@ function renderChecklist(t) {
     row.className = "site" + (enabled.has(s.id) ? "" : " off");
 
     const isApi = s.kind === "api";
-    const canOpen = !isApi && ["pending", "error", "blocked"].includes(site.status);
-    const canRun = isApi
-      ? ["pending", "error", "blocked"].includes(site.status)
-      : ["in_progress", "awaiting", "error", "blocked"].includes(site.status);
+    // 열기는 로그인/이동용으로 항상 가능. 실제 처리는 순차 처리(전체/선택)로 돌린다.
+    const canOpen = !isApi;
 
     row.innerHTML = `
       <div class="idx">${i + 1}</div>
@@ -354,17 +352,11 @@ function renderChecklist(t) {
 
     const actions = row.querySelector(".actions");
     if (!isApi) {
-      const openBtn = btn("열기", canOpen ? "" : "ghost");
+      const openBtn = btn("열기", "");
       openBtn.disabled = !canOpen;
       openBtn.onclick = () => run(() => api(`/api/site/${s.id}/open`, "POST"));
       actions.appendChild(openBtn);
-    }
-    const runBtn = btn("자동 처리", "");
-    runBtn.disabled = !canRun;
-    runBtn.onclick = () => run(() => api(`/api/site/${s.id}/run`, "POST"));
-    actions.appendChild(runBtn);
 
-    if (!isApi) {
       const credBtn = btn(s.has_credentials ? "🔑 저장됨" : "🔑 로그인정보", "ghost");
       credBtn.onclick = () => toggleCredForm(row, s);
       actions.appendChild(credBtn);
