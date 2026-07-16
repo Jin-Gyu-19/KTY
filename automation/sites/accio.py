@@ -48,6 +48,13 @@ DELETE_BUTTON = "button.cck-icon-button--ghost"  # 줄 안의 빨간 휴지통(�
 # (새로고침만으로 칩이 안 지워질 때 대비. 비어 있으면 이 단계는 건너뜀)
 CHIP_REMOVE = ""
 
+# 삭제 확인 모달(사이트 자체 창)의 버튼 텍스트.
+#   삭제 = 최종 확정(실제 모드에선 절대 자동으로 안 누름)
+#   취소 = 닫기(테스트 모드에서 흐름 검증용으로 누른다)
+# 휴지통 아이콘 버튼엔 글자가 없어, 이 텍스트로 잡으면 확인창 버튼만 걸린다.
+CONFIRM_DELETE_TEXT = "삭제"
+CONFIRM_CANCEL_TEXT = "취소"
+
 # 검색창이 뜰 때까지 기다리는 최대 시간(ms)
 SEARCH_READY_MS = 8000
 # 검색어 입력 후 그리드가 필터링될 때까지 대기(ms)
@@ -280,32 +287,20 @@ class AccioScenario(SiteScenario):
                 ),
             )
 
-        # 테스트 모드: 대상만 확인하고 실제로 누르지는 않는다(확인창도 안 띄움).
-        if getattr(self, "test_mode", False):
-            return StepResult(
-                ok=True,
-                awaiting=False,
-                message=(
-                    f"[테스트] '{who}' 계정을 찾았고 삭제 버튼도 확인했어 → "
-                    "실제로는 누르지 않음(테스트라 삭제 안 함)."
-                ),
-            )
-
-        # 휴지통 클릭 — 단, 확인창은 절대 승인하지 않는다.
-        #   브라우저 기본 confirm 이면 취소(dismiss)하고,
-        #   사이트 자체 모달이면 그대로 열어둔 채 멈춘다(사람이 최종 확인).
+        # 혹시 브라우저 기본 confirm 이 뜨면 자동 승인하지 않는다(취소).
         confirm_seen = {"native": False, "msg": ""}
 
         def _on_dialog(d):
             confirm_seen["native"] = True
             confirm_seen["msg"] = d.message or ""
             try:
-                d.dismiss()  # 안전: 삭제 확정 confirm 은 취소
+                d.dismiss()  # 안전: 네이티브 confirm 은 취소
             except Exception:
                 pass
 
         page.on("dialog", _on_dialog)
 
+        # 휴지통 클릭 (테스트/실제 공통) → 사이트 확인 모달(삭제/취소)이 뜬다.
         try:
             delete_btn.first.scroll_into_view_if_needed(timeout=2000)
         except Exception:
@@ -318,29 +313,90 @@ class AccioScenario(SiteScenario):
                 message="삭제 버튼 클릭에 실패했어. 화면에서 직접 삭제해줘. ── 진단: "
                 + self._diagnose(page),
             )
-        page.wait_for_timeout(800)
+        page.wait_for_timeout(600)
 
-        # 6) 멈춤 안내
+        # 테스트 모드: 확인창의 '취소'를 눌러 닫는다(실제 삭제 X, 흐름 전체 검증).
+        if getattr(self, "test_mode", False):
+            cancel = self._modal_button(page, CONFIRM_CANCEL_TEXT)
+            cancelled = False
+            try:
+                cancel.last.wait_for(state="visible", timeout=5000)
+                cancel.last.click(timeout=3000)
+                cancelled = True
+            except Exception:
+                cancelled = False
+            if not cancelled:
+                # 취소 버튼을 못 찾았으면 최소한 실수 삭제가 없도록 Esc 로 닫아본다.
+                try:
+                    page.keyboard.press("Escape")
+                except Exception:
+                    pass
+            page.wait_for_timeout(400)
+            if cancelled:
+                return StepResult(
+                    ok=True,
+                    awaiting=False,
+                    message=(
+                        f"[테스트] '{who}' 휴지통→삭제 확인창까지 떴고 '취소'를 눌러 "
+                        "닫았어(실제 삭제 안 함). 흐름 정상."
+                    ),
+                )
+            return StepResult(
+                ok=False,
+                message=(
+                    f"[테스트] '{who}' 휴지통은 눌렀는데 확인창의 '취소' 버튼을 못 찾았어"
+                    "(Esc로 닫음 시도). 확인창 구조를 알려주면 정확히 잡을게. ── 진단: "
+                    + self._diagnose(page)
+                ),
+            )
+
+        # 실제 모드: 확인창이 떴는지 확인하고, '삭제'는 자동으로 누르지 않고 정지한다.
         if confirm_seen["native"]:
             note = confirm_seen["msg"].replace("\n", " ").strip()
             return StepResult(
                 ok=True,
                 awaiting=True,
                 message=(
-                    f"'{who}' 삭제 버튼을 눌렀고, 확인창"
+                    f"'{who}' 삭제 버튼을 눌렀고 확인창"
                     + (f"('{note}')" if note else "")
                     + "은 안전을 위해 자동 취소했어. 삭제를 확정하려면 그 줄 휴지통을 다시 눌러 "
-                    "[확인]을 직접 눌러줘."
+                    "직접 확정해줘."
+                ),
+            )
+        appeared = False
+        try:
+            self._modal_button(page, CONFIRM_CANCEL_TEXT).last.wait_for(
+                state="visible", timeout=5000
+            )
+            appeared = True
+        except Exception:
+            appeared = False
+        if appeared:
+            return StepResult(
+                ok=True,
+                awaiting=True,
+                message=(
+                    f"'{who}' 삭제 확인창을 띄웠어. 대상이 맞는지 확인하고 확인창의 "
+                    "'삭제'를 직접 눌러 확정해줘(안전을 위해 자동으로 안 누름)."
                 ),
             )
         return StepResult(
             ok=True,
             awaiting=True,
             message=(
-                f"'{who}' 삭제 확인창 직전까지 진행했어. 대상이 맞는지 확인하고, "
-                "최종 삭제 확정은 안전을 위해 직접 눌러줘."
+                f"'{who}' 휴지통을 눌렀어. 확인창이 떴는지 화면에서 확인하고 직접 "
+                "'삭제'로 마무리해줘."
             ),
         )
+
+    def _modal_button(self, page, text: str):
+        """확인 모달에서 텍스트가 '정확히' 그 글자인 버튼(Locator)을 반환한다.
+
+        휴지통 아이콘 버튼엔 글자가 없어, '삭제'/'취소' 텍스트로 잡으면
+        확인창 버튼만 정확히 걸린다(부분일치 방지로 ^글자$ 사용).
+        """
+        pat = re.compile(r"^\s*" + re.escape(text) + r"\s*$")
+        return page.locator("button").filter(has_text=pat)
 
     def _clear_filter_chips(self, page) -> None:
         """이전 검색으로 남은 필터 칩(태그)을 모두 제거한다.
