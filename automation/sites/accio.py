@@ -44,6 +44,9 @@ RESULT_ROW = "div[role='row']"                 # 한 줄(row)
 NAME_CELL = "[col-id='name'] span.mold-label"  # 줄 안의 '이름' 텍스트
 ID_CELL = "[col-id='userId']"                  # 줄 안의 '계정(이메일)' — 안전 표시용
 DELETE_BUTTON = "button.cck-icon-button--ghost"  # 줄 안의 빨간 휴지통(삭제)
+# 검색 칩(태그)의 X(제거) 버튼. 채우면, 새 검색 전에 이전 칩을 눌러 지운다.
+# (새로고침만으로 칩이 안 지워질 때 대비. 비어 있으면 이 단계는 건너뜀)
+CHIP_REMOVE = ""
 
 # 검색창이 뜰 때까지 기다리는 최대 시간(ms)
 SEARCH_READY_MS = 8000
@@ -198,13 +201,17 @@ class AccioScenario(SiteScenario):
                 ),
             )
 
-        # 2) 계정관리 화면으로 이동(주소를 알면 직접 이동)
+        # 2) 계정관리 화면을 '매번 새로' 연다.
+        #    검색창은 칩(태그)+AND/OR 필터라, 이전 사람 검색이 남긴 칩이 있으면
+        #    다음 사람이 'AND' 로 묶여 검색되지 않는다. 새로 로드해 필터를 초기화한다.
         if USER_ADMIN_URL:
             try:
-                if USER_ADMIN_URL.split("://")[-1] not in (page.url or ""):
-                    page.goto(USER_ADMIN_URL, wait_until="domcontentloaded")
+                page.goto(USER_ADMIN_URL, wait_until="domcontentloaded")
+                page.wait_for_timeout(600)
             except Exception:
                 pass
+        # 새로 로드해도 칩이 남아 있으면(필터 상태가 저장되는 경우) 직접 제거한다.
+        self._clear_filter_chips(page)
 
         # 3) '결과 내 검색'에 이름을 넣어 목록을 좁힌다(타이핑 즉시 필터).
         search = page.locator(SEARCH_INPUT).first
@@ -334,6 +341,26 @@ class AccioScenario(SiteScenario):
                 "최종 삭제 확정은 안전을 위해 직접 눌러줘."
             ),
         )
+
+    def _clear_filter_chips(self, page) -> None:
+        """이전 검색으로 남은 필터 칩(태그)을 모두 제거한다.
+
+        CHIP_REMOVE 셀렉터가 채워져 있을 때만 동작한다(비어 있으면 안전하게 건너뜀).
+        """
+        if not CHIP_REMOVE:
+            return
+        try:
+            chips = page.locator(CHIP_REMOVE)
+            for _ in range(20):  # 지울 때마다 개수가 줄어드니 첫 칩을 반복 클릭
+                if chips.count() == 0:
+                    break
+                try:
+                    chips.first.click(timeout=1500)
+                    page.wait_for_timeout(200)
+                except Exception:
+                    break
+        except Exception:
+            pass
 
     def _visible_names(self, page) -> dict:
         """현재 그리드에 렌더된 이름 셀 텍스트를 모아 개수/샘플을 돌려준다.
