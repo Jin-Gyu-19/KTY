@@ -108,3 +108,29 @@ button:disabled { opacity: .5; cursor: default; }
 .badge.done { background: #d9f2e3; color: var(--ok); }
 .badge.error { background: #fadadd; color: var(--err); }
 .tag { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45);
+  display: flex; align-items: center; justify-content: center; z-index: 1000;
+}
+.modal-box {
+  background: var(--card); border-radius: 10px; width: min(760px, 92vw);
+  max-height: 82vh; display: flex; flex-direction: column; overflow: hidden;
+}
+.modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid var(--line);
+}
+#modalBody { padding: 8px 12px; overflow: auto; }
+.mrow {
+  display: flex; gap: 8px; align-items: baseline;
+  padding: 7px 6px; border-bottom: 1px solid var(--line); font-size: 13px;
+}
+.mrow .num { width: 26px; color: var(--muted); flex: none; text-align: right; }
+.mrow .mmain { flex: 1; min-width: 0; }
+.mrow .msub { font-weight: 600; }
+.mrow .mmeta { font-size: 11px; color: var(--muted); }
+.pill { font-size: 11px; padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
+.pill.ok { background: #d9f2e3; color: var(--ok); }
+.pill.no { background: #eef1f6; color: var(--muted); }
+.pill.hit { background: #ffe4c2; color: var(--warn); }

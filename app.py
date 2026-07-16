@@ -156,7 +156,8 @@ def api_mail_import():
         pass
 
     mailbox = os.environ.get("M365_MAILBOX", "").strip()
-    keyword = os.environ.get("MAIL_SUBJECT_KEYWORD", "퇴사,퇴직").strip() or None
+    # 핵심 키워드는 코드에 항상 포함(.py는 UTF-8이라 안 깨짐). .env 값은 추가로 합친다.
+    keyword = (os.environ.get("MAIL_SUBJECT_KEYWORD", "") or "").strip() + ",퇴사,퇴직,퇴사자"
     sender = os.environ.get("MAIL_SENDER", "").strip() or None  # 비우면 발신자 안 따짐
     try:
         since_days = int(os.environ.get("MAIL_SINCE_DAYS", "30") or "30")
@@ -208,6 +209,37 @@ def api_mail_import():
             "message": message,
         }
     )
+
+
+@app.post("/api/mail/list")
+def api_mail_list():
+    """받은편지함 최근 메일 목록을 판정결과와 함께 돌려준다(모달 확인용)."""
+    import os
+
+    from automation import mailimport
+
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+            override=True,
+        )
+    except Exception:
+        pass
+
+    mailbox = os.environ.get("M365_MAILBOX", "").strip()
+    keyword = (os.environ.get("MAIL_SUBJECT_KEYWORD", "") or "").strip() + ",퇴사,퇴직,퇴사자"
+    sender = os.environ.get("MAIL_SENDER", "").strip() or None
+    try:
+        since_days = int(os.environ.get("MAIL_SINCE_DAYS", "30") or "30")
+    except ValueError:
+        since_days = 30
+    try:
+        rows = mailimport.debug_list(mailbox, keyword, sender, since_days=since_days)
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"messages": rows})
 
 
 @app.post("/api/target/reset")

@@ -116,6 +116,59 @@ def parse_resignation(text: str) -> dict | None:
     return None
 
 
+def debug_list(
+    mailbox: str,
+    subject_keyword: str | None = "퇴사",
+    sender: str | None = None,
+    since_days: int = 30,
+    top: int = 100,
+) -> list[dict]:
+    """받은편지함 최근 메일을 각 메일별 판정 결과와 함께 돌려준다(진단/확인용)."""
+    client = GraphClient()
+    if not client.configured():
+        raise RuntimeError("M365 환경변수가 설정되지 않았습니다.")
+    if not mailbox:
+        raise RuntimeError("읽을 메일함(M365_MAILBOX)이 설정되지 않았습니다.")
+
+    keywords = [k.strip() for k in (subject_keyword or "").split(",") if k.strip()]
+    since_iso = None
+    if since_days and since_days > 0:
+        from datetime import datetime, timedelta, timezone
+
+        since_iso = (datetime.now(timezone.utc) - timedelta(days=since_days)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+
+    rows = []
+    for m in client.list_recent_messages(mailbox, top=top):
+        subj = m.get("subject", "") or ""
+        recv = m.get("receivedDateTime", "") or ""
+        addr = (m.get("from") or {}).get("emailAddress") or {}
+        frm = addr.get("name") or addr.get("address") or ""
+        in_window = (not since_iso) or (recv >= since_iso)
+        subj_match = (not keywords) or any(k in subj for k in keywords)
+        parsed = None
+        if in_window and subj_match:
+            body = m.get("body") or {}
+            if (body.get("contentType") or "").lower() == "html":
+                bt = _strip_html(body.get("content", ""))
+            else:
+                bt = body.get("content", "") or m.get("bodyPreview", "")
+            p = parse_resignation(subj + "\n" + bt)
+            parsed = f"{p['name']} / {p['resign_date']}" if p else None
+        rows.append(
+            {
+                "subject": subj,
+                "sender": frm,
+                "received": recv[:16].replace("T", " "),
+                "in_window": in_window,
+                "subject_match": subj_match,
+                "parsed": parsed,
+            }
+        )
+    return rows
+
+
 def import_from_mail(
     mailbox: str,
     subject_keyword: str | None = "퇴사",

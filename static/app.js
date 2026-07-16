@@ -309,6 +309,76 @@ document.getElementById("uploadBtn").onclick = async () => {
   }
 };
 
+// ----- 모달 -----
+function showModal(title, bodyNode) {
+  document.getElementById("modalTitle").textContent = title;
+  const body = document.getElementById("modalBody");
+  body.innerHTML = "";
+  body.appendChild(bodyNode);
+  document.getElementById("modal").style.display = "flex";
+}
+document.getElementById("modalClose").onclick = () => {
+  document.getElementById("modal").style.display = "none";
+};
+
+// 버튼을 처리 중 상태로 잠그고 실행
+async function busy(btn, label, fn) {
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = label;
+  try {
+    return await fn();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+
+document.getElementById("mailListBtn").onclick = (e) =>
+  busy(e.target, "읽는 중…", async () => {
+    let data;
+    try {
+      data = await api("/api/mail/list", "POST");
+    } catch (err) {
+      alert(err.message);
+      return;
+    }
+    const rows = data.messages || [];
+    const wrap = document.createElement("div");
+    const summary = document.createElement("div");
+    summary.className = "muted";
+    summary.style.margin = "4px 6px 10px";
+    const hit = rows.filter((r) => r.in_window && r.subject_match).length;
+    const got = rows.filter((r) => r.parsed).length;
+    summary.textContent = `받은편지함 최근 ${rows.length}건 · 조건 매칭 ${hit}건 · 추출 성공 ${got}건`;
+    wrap.appendChild(summary);
+    rows.forEach((r, i) => {
+      const row = document.createElement("div");
+      row.className = "mrow";
+      let pill;
+      if (r.parsed)
+        pill = `<span class="pill ok">✓ ${r.parsed}</span>`;
+      else if (r.in_window && r.subject_match)
+        pill = `<span class="pill hit">제목매칭·추출실패</span>`;
+      else if (!r.in_window)
+        pill = `<span class="pill no">기간밖</span>`;
+      else pill = `<span class="pill no">제목불일치</span>`;
+      row.innerHTML =
+        `<span class="num">${i + 1}</span>` +
+        `<span class="mmain"><div class="msub">${r.subject || "(제목없음)"}</div>` +
+        `<div class="mmeta">${r.sender} · ${r.received}</div></span>` +
+        pill;
+      wrap.appendChild(row);
+    });
+    if (!rows.length) {
+      const p = document.createElement("p");
+      p.className = "muted";
+      p.textContent = "받은편지함에서 읽은 메일이 없습니다.";
+      wrap.appendChild(p);
+    }
+    showModal("읽은 메일 목록 (받은편지함)", wrap);
+  });
+
 document.getElementById("mailBtn").onclick = async () => {
   try {
     const r = await api("/api/mail/import", "POST");
