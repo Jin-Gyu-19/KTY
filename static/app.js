@@ -313,6 +313,24 @@ document.getElementById("mailBtn").onclick = async () => {
   try {
     const r = await api("/api/mail/import", "POST");
     await refresh();
+    // 중복(이미 목록에 있는 사람)은 한 명씩 물어본다.
+    for (const d of r.duplicates || []) {
+      const ok = confirm(
+        `'${d.name}' (퇴사일 ${d.resign_date})은 이미 목록에 있습니다.\n` +
+          `메일의 정보로 추가/갱신할까요?`
+      );
+      if (ok) {
+        try {
+          await api("/api/target", "POST", {
+            name: d.name,
+            resign_date: d.resign_date,
+          });
+        } catch (e) {
+          alert(e.message);
+        }
+      }
+    }
+    await refresh();
     if (r && r.message) alert(r.message);
   } catch (e) {
     alert(e.message);

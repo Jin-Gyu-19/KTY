@@ -148,20 +148,38 @@ def api_mail_import():
     keyword = os.environ.get("MAIL_SUBJECT_KEYWORD", "퇴사,퇴직").strip() or None
     sender = os.environ.get("MAIL_SENDER", "").strip() or None  # 비우면 발신자 안 따짐
     try:
-        found = mailimport.import_from_mail(mailbox, keyword, sender)
+        since_days = int(os.environ.get("MAIL_SINCE_DAYS", "30") or "30")
+    except ValueError:
+        since_days = 30
+    try:
+        found = mailimport.import_from_mail(mailbox, keyword, sender, since_days=since_days)
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": str(exc)}), 400
 
+    # 이미 목록에 있는 사람(이름 기준)은 자동 추가하지 않고, 사용자가 결정하도록 넘긴다.
+    existing_names = {tg["name"] for tg in state.snapshot()["targets"]}
     site_ids = _site_ids()
+    added, duplicates = [], []
     for t in found:
-        state.add_target(t["name"], t["resign_date"], site_ids)
-    names = ", ".join(f"{t['name']}({t['resign_date']})" for t in found[:8])
-    msg = (
-        f"메일에서 {len(found)}명 등록: {names}{' 외' if len(found) > 8 else ''}"
-        if found
-        else "조건에 맞는 퇴사 공지 메일에서 등록할 대상을 찾지 못했습니다."
+        if t["name"] in existing_names:
+            duplicates.append(t)
+        else:
+            state.add_target(t["name"], t["resign_date"], site_ids)
+            added.append(t)
+
+    parts = [f"메일({since_days}일 이내)에서 {len(added)}명 등록"]
+    if duplicates:
+        parts.append(f"중복 {len(duplicates)}명은 확인 필요")
+    if not found:
+        parts = ["조건에 맞는 퇴사 공지에서 등록할 대상을 찾지 못했습니다"]
+    return jsonify(
+        {
+            "targets": state.snapshot(),
+            "added": added,
+            "duplicates": duplicates,
+            "message": " · ".join(parts),
+        }
     )
-    return jsonify({"targets": state.snapshot(), "added": len(found), "message": msg})
 
 
 @app.post("/api/target/reset")

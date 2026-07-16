@@ -114,9 +114,13 @@ def import_from_mail(
     mailbox: str,
     subject_keyword: str | None = "퇴사",
     sender: str | None = None,
-    top: int = 50,
+    since_days: int = 30,
+    top: int = 100,
 ) -> list[dict]:
-    """메일함을 훑어 조건에 맞는 퇴사 공지에서 퇴사자 목록을 만든다."""
+    """메일함을 훑어 조건에 맞는 퇴사 공지에서 퇴사자 목록을 만든다.
+
+    since_days: 최근 며칠 이내 받은 메일만 본다(기본 30일).
+    """
     client = GraphClient()
     if not client.configured():
         raise RuntimeError(
@@ -128,7 +132,15 @@ def import_from_mail(
     # 제목 키워드는 쉼표로 여러 개 지정 가능(하나라도 들어있으면 대상). 예: "퇴사,퇴직"
     keywords = [k.strip() for k in (subject_keyword or "").split(",") if k.strip()]
 
-    messages = client.list_recent_messages(mailbox, top=top)
+    # 최근 N일 이내 메일만 (기간 제한)
+    since_iso = None
+    if since_days and since_days > 0:
+        from datetime import datetime, timedelta, timezone
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
+        since_iso = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    messages = client.list_recent_messages(mailbox, top=top, since_iso=since_iso)
     found: list[dict] = []
     seen = set()
     for m in messages:
