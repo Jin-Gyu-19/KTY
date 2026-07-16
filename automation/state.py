@@ -244,9 +244,12 @@ def _save_cred(data: dict) -> None:
 
 
 def set_credentials(site_id: str, username: str, password: str) -> None:
+    from . import secret
+
+    enc, value = secret.encrypt(password)
     with _LOCK:
         data = _load_cred()
-        data[site_id] = {"username": username, "password": password}
+        data[site_id] = {"username": username, "password": value, "enc": enc}
         _save_cred(data)
 
 
@@ -259,12 +262,22 @@ def clear_credentials(site_id: str) -> None:
 
 
 def get_credentials(site_id: str) -> dict | None:
+    from . import secret
+
     with _LOCK:
-        return _load_cred().get(site_id)
+        c = _load_cred().get(site_id)
+    if not c:
+        return None
+    # 저장된 값을 복호화해서 평문 비밀번호로 돌려준다(로그인 시에만 사용).
+    return {
+        "username": c.get("username", ""),
+        "password": secret.decrypt(c.get("enc", "plain"), c.get("password", "")),
+    }
 
 
 def has_credentials(site_id: str) -> bool:
-    c = get_credentials(site_id)
+    with _LOCK:
+        c = _load_cred().get(site_id)
     return bool(c and c.get("username"))
 
 

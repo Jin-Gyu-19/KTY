@@ -258,7 +258,8 @@ function toggleCredForm(row, s) {
   };
   const hint = document.createElement("span");
   hint.className = "muted";
-  hint.textContent = "이 PC에만 저장됩니다. 아이디를 비우고 저장하면 삭제.";
+  hint.textContent =
+    "Windows 계정으로 암호화되어 이 PC에만 저장됩니다(평문 노출 없음). 아이디를 비우고 저장하면 삭제.";
   form.appendChild(user);
   form.appendChild(pass);
   form.appendChild(save);
