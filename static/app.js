@@ -147,8 +147,8 @@ function renderTargetList(t) {
 
   const bar = document.createElement("div");
   bar.className = "bulk-bar";
-  const left = document.createElement("span");
-  left.className = "muted";
+  const left = document.createElement("label");
+  left.className = "muted selall";
   const selAll = document.createElement("input");
   selAll.type = "checkbox";
   selAll.checked = list.length > 0 && list.every((x) => selectedKeys.has(x.key));
@@ -160,8 +160,8 @@ function renderTargetList(t) {
   left.appendChild(selAll);
   left.appendChild(document.createTextNode(` 전체선택 (${selectedKeys.size}명 선택)`));
 
-  const right = document.createElement("span");
-  right.className = "target-actions";
+  const right = document.createElement("div");
+  right.className = "bulk-actions";
   const runSel = btn("▶ 선택 순차 처리", "");
   runSel.disabled = selectedKeys.size === 0;
   runSel.onclick = () => runAllWith([...selectedKeys]);
@@ -194,6 +194,14 @@ function renderTargetList(t) {
     cb.onchange = () => {
       if (cb.checked) selectedKeys.add(tg.key);
       else selectedKeys.delete(tg.key);
+      renderTargetList(t);
+    };
+
+    // 행(바) 아무 곳이나 클릭해도 체크가 토글되도록(버튼 클릭은 제외)
+    row.onclick = (e) => {
+      if (e.target.closest("button") || e.target === cb) return;
+      if (selectedKeys.has(tg.key)) selectedKeys.delete(tg.key);
+      else selectedKeys.add(tg.key);
       renderTargetList(t);
     };
 
@@ -245,6 +253,30 @@ function renderChecklist(t) {
   listEl.innerHTML = "";
 
   const enabled = new Set(enabledSites || scenarios.map((s) => s.id));
+
+  // 사이트 전체 선택/해제 바
+  const sbar = document.createElement("div");
+  sbar.className = "bulk-bar";
+  const sleft = document.createElement("label");
+  sleft.className = "muted selall";
+  const sAll = document.createElement("input");
+  sAll.type = "checkbox";
+  sAll.checked = scenarios.length > 0 && scenarios.every((s) => enabled.has(s.id));
+  sAll.onchange = async () => {
+    const ids = sAll.checked ? scenarios.map((s) => s.id) : [];
+    try {
+      await api("/api/sites/enabled", "POST", { ids });
+      await refresh();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+  sleft.appendChild(sAll);
+  sleft.appendChild(
+    document.createTextNode(` 사이트 전체 선택 (${enabled.size}/${scenarios.length}개 포함)`)
+  );
+  sbar.appendChild(sleft);
+  listEl.appendChild(sbar);
 
   scenarios.forEach((s, i) => {
     const site = active.sites[s.id] || { status: "pending", message: "" };

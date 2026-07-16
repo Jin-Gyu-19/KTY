@@ -80,8 +80,12 @@ button:disabled { opacity: .5; cursor: default; }
 .site .actions { display: flex; gap: 8px; }
 
 .section-title { font-size: 15px; margin: 18px 0 8px; }
-.list-head { display: flex; align-items: center; justify-content: space-between; }
-.head-actions { display: flex; gap: 8px; }
+.list-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+button { white-space: nowrap; }
 .testmode {
   display: flex; flex-direction: row; align-items: center; gap: 8px;
   margin-top: 12px; font-size: 13px; color: var(--warn);
@@ -111,10 +115,13 @@ button:disabled { opacity: .5; cursor: default; }
 
 .bulk-bar {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 8px; margin-bottom: 8px; flex-wrap: wrap;
+  gap: 8px 10px; margin: 4px 0 10px; flex-wrap: wrap;
 }
+.bulk-bar .bulk-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .bulk-bar input[type=checkbox] { width: auto; margin-right: 4px; }
-.target-row input[type=checkbox] { width: auto; flex: none; }
+.bulk-bar label.selall { display: inline-flex; align-items: center; cursor: pointer; }
+.target-row { cursor: pointer; }
+.target-row input[type=checkbox] { width: auto; flex: none; cursor: pointer; }
 .target-row .mmain { flex: 1; min-width: 0; }
 .site.off { opacity: .5; }
 .site .inc { display: flex; align-items: center; }
