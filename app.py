@@ -134,6 +134,33 @@ def api_target_remove():
     return jsonify({"targets": state.snapshot()})
 
 
+@app.post("/api/mail/import")
+def api_mail_import():
+    """M365 메일에서 퇴사 공지를 읽어 대상자 목록에 등록한다(실제 처리는 사람이)."""
+    import os
+
+    from automation import mailimport
+
+    mailbox = os.environ.get("M365_MAILBOX", "").strip()
+    keyword = os.environ.get("MAIL_SUBJECT_KEYWORD", "퇴사").strip() or None
+    sender = os.environ.get("MAIL_SENDER", "").strip() or None
+    try:
+        found = mailimport.import_from_mail(mailbox, keyword, sender)
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": str(exc)}), 400
+
+    site_ids = _site_ids()
+    for t in found:
+        state.add_target(t["name"], t["resign_date"], site_ids)
+    names = ", ".join(f"{t['name']}({t['resign_date']})" for t in found[:8])
+    msg = (
+        f"메일에서 {len(found)}명 등록: {names}{' 외' if len(found) > 8 else ''}"
+        if found
+        else "조건에 맞는 퇴사 공지 메일에서 등록할 대상을 찾지 못했습니다."
+    )
+    return jsonify({"targets": state.snapshot(), "added": len(found), "message": msg})
+
+
 @app.post("/api/target/reset")
 def api_target_reset():
     key = (request.get_json(force=True).get("key") or "").strip()

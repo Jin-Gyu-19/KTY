@@ -115,3 +115,20 @@ class GraphClient:
             timeout=30,
         )
         r.raise_for_status()
+
+    def list_recent_messages(self, mailbox: str, top: int = 50) -> list[dict]:
+        """지정한 메일함의 최근 메일을 가져온다(Mail.Read 권한 필요)."""
+        import requests
+
+        r = requests.get(
+            f"{GRAPH}/users/{mailbox}/messages",
+            headers=self._headers(),
+            params={
+                "$top": top,
+                "$select": "subject,receivedDateTime,from,bodyPreview,body",
+                "$orderby": "receivedDateTime desc",
+            },
+            timeout=30,
+        )
+        r.raise_for_status()
+        return r.json().get("value", [])

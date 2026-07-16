@@ -309,6 +309,16 @@ document.getElementById("uploadBtn").onclick = async () => {
   }
 };
 
+document.getElementById("mailBtn").onclick = async () => {
+  try {
+    const r = await api("/api/mail/import", "POST");
+    await refresh();
+    if (r && r.message) alert(r.message);
+  } catch (e) {
+    alert(e.message);
+  }
+};
+
 document.getElementById("historyBtn").onclick = toggleHistory;
 
 document.getElementById("runAllBtn").onclick = async () => {
