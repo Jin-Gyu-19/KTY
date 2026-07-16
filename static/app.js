@@ -405,7 +405,11 @@ function renderChecklist(t) {
       openBtn.onclick = () => run(() => api(`/api/site/${s.id}/open`, "POST"));
       actions.appendChild(openBtn);
 
-      const credBtn = btn(s.has_credentials ? "🔑 저장됨" : "🔑 로그인정보", "ghost");
+      const credBtn = btn("🔑", "ghost");
+      credBtn.classList.add("iconbtn");
+      credBtn.title = s.has_credentials
+        ? "로그인정보 저장됨 — 클릭해 수정/삭제"
+        : "로그인정보 입력";
       if (s.has_credentials) credBtn.classList.add("saved");
       credBtn.onclick = () => toggleCredForm(tr, s);
       actions.appendChild(credBtn);

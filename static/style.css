@@ -107,6 +107,8 @@ h1 { font-size: 22px; }
 }
 .systbl .c-act .actions { display: flex; gap: 8px; justify-content: flex-start; }
 .systbl .c-act button { padding: 6px 12px; }
+.systbl .c-act button.iconbtn { padding: 6px 9px; font-size: 14px; line-height: 1; }
+.systbl .c-act button.iconbtn.saved { border-color: var(--ok); background: rgba(31,157,85,.08); }
 .systbl tr.demo { opacity: .55; }
 .systbl .credrow td { padding: 0 12px 12px; border-bottom: 1px solid var(--line); }
 .systbl button.saved { color: var(--ok); border: 1px solid var(--ok); background: transparent; }
