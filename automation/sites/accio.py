@@ -219,20 +219,14 @@ class AccioScenario(SiteScenario):
                     + self._diagnose(page)
                 ),
             )
-        # AG Grid '결과 내 검색'은 실제 키 입력 이벤트로 필터된다.
-        # fill()은 값만 넣어 필터가 안 먹을 수 있으므로 한 글자씩 타이핑한다.
+        # '결과 내 검색'은 이름을 입력한 뒤 '엔터'를 눌러야 검색이 실행된다.
         try:
             search.click()
             search.fill("")
             search.press_sequentially(employee.name, delay=60)
         except Exception:
             search.fill(employee.name)
-        # 프레임워크가 input/change 를 놓쳤을 때를 대비해 한 번 더 신호를 준다.
-        for ev in ("input", "change"):
-            try:
-                search.dispatch_event(ev)
-            except Exception:
-                pass
+        search.press("Enter")  # ← 엔터로 검색 실행(이게 핵심)
         page.wait_for_timeout(FILTER_SETTLE_MS)
 
         # 4) 이름이 '정확히' 일치하는 줄을 찾는다(부분일치 금지 → 김민 ↔ 김민수 오탐 방지).
