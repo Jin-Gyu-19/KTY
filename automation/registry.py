@@ -6,6 +6,7 @@ UI 체크리스트에 자동으로 나타난다. 순서 = 처리 순서.
 
 from __future__ import annotations
 
+from .sites.accio import AccioScenario
 from .sites.base import SiteScenario
 from .sites.generic import ManualBrowserScenario
 from .sites.groupware import GroupwareScenario
@@ -13,11 +14,7 @@ from .sites.groupware import GroupwareScenario
 # 처리 순서대로 나열. (M365 는 직접 처리하므로 제외)
 SCENARIOS: list[SiteScenario] = [
     GroupwareScenario(),
-    ManualBrowserScenario(
-        id="accio",
-        name="Accio (bdo.accio.kr)",
-        url="https://bdo.accio.kr/",
-    ),
+    AccioScenario(),
     ManualBrowserScenario(
         id="vpn",
         name="VPN (61.73.184.193)",
