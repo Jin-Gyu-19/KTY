@@ -144,6 +144,17 @@ def api_mail_import():
 
     from automation import mailimport
 
+    # .env 를 다시 읽어 수정사항을 재시작 없이 즉시 반영한다.
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+            override=True,
+        )
+    except Exception:
+        pass
+
     mailbox = os.environ.get("M365_MAILBOX", "").strip()
     keyword = os.environ.get("MAIL_SUBJECT_KEYWORD", "퇴사,퇴직").strip() or None
     sender = os.environ.get("MAIL_SENDER", "").strip() or None  # 비우면 발신자 안 따짐
