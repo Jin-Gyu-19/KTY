@@ -143,6 +143,8 @@ def import_from_mail(
     messages = client.list_recent_messages(mailbox, top=top, since_iso=since_iso)
     found: list[dict] = []
     seen = set()
+    subject_matched = 0
+    matched_no_parse = []  # 제목은 맞았는데 파싱 실패한 메일 제목(진단용)
     for m in messages:
         subject = m.get("subject", "") or ""
         if keywords and not any(k in subject for k in keywords):
@@ -153,6 +155,7 @@ def import_from_mail(
             if sender.lower() not in hay:
                 continue
 
+        subject_matched += 1
         body = m.get("body") or {}
         if (body.get("contentType") or "").lower() == "html":
             body_text = _strip_html(body.get("content", ""))
@@ -167,4 +170,13 @@ def import_from_mail(
                 parsed["subject"] = subject
                 parsed["received"] = m.get("receivedDateTime", "")
                 found.append(parsed)
-    return found
+        else:
+            matched_no_parse.append(subject[:40])
+
+    stats = {
+        "total": len(messages),
+        "subject_matched": subject_matched,
+        "parsed": len(found),
+        "matched_no_parse": matched_no_parse[:5],
+    }
+    return found, stats

@@ -163,7 +163,9 @@ def api_mail_import():
     except ValueError:
         since_days = 30
     try:
-        found = mailimport.import_from_mail(mailbox, keyword, sender, since_days=since_days)
+        found, stats = mailimport.import_from_mail(
+            mailbox, keyword, sender, since_days=since_days
+        )
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": str(exc)}), 400
 
@@ -178,17 +180,27 @@ def api_mail_import():
             state.add_target(t["name"], t["resign_date"], site_ids)
             added.append(t)
 
-    parts = [f"메일({since_days}일 이내)에서 {len(added)}명 등록"]
-    if duplicates:
-        parts.append(f"중복 {len(duplicates)}명은 확인 필요")
-    if not found:
-        parts = ["조건에 맞는 퇴사 공지에서 등록할 대상을 찾지 못했습니다"]
+    if found:
+        parts = [f"메일({since_days}일 이내)에서 {len(added)}명 등록"]
+        if duplicates:
+            parts.append(f"중복 {len(duplicates)}명은 확인 필요")
+        message = " · ".join(parts)
+    else:
+        # 진단: 어디서 걸렸는지 알려준다
+        message = (
+            f"등록 대상 없음 — 최근 {since_days}일 메일 {stats['total']}건 중 "
+            f"제목매칭 {stats['subject_matched']}건, 이름·퇴사일 추출 {stats['parsed']}건."
+        )
+        if stats["subject_matched"] == 0:
+            message += " (제목에 퇴사/퇴직이 있는 메일이 없습니다)"
+        elif stats["matched_no_parse"]:
+            message += " 파싱 실패 제목: " + ", ".join(stats["matched_no_parse"])
     return jsonify(
         {
             "targets": state.snapshot(),
             "added": added,
             "duplicates": duplicates,
-            "message": " · ".join(parts),
+            "message": message,
         }
     )
 
