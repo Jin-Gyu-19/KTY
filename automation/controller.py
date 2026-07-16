@@ -151,8 +151,15 @@ class BrowserController:
                 os.path.dirname(os.path.dirname(__file__)), "data", ".browser"
             )
             os.makedirs(profile, exist_ok=True)
+            # 자동화 플래그를 제거해 브라우저 비밀번호 관리자/자동완성이 정상 작동하도록 한다.
             self._context = self._pw.chromium.launch_persistent_context(
-                profile, headless=False, args=["--start-maximized"]
+                profile,
+                headless=False,
+                args=[
+                    "--start-maximized",
+                    "--disable-blink-features=AutomationControlled",
+                ],
+                ignore_default_args=["--enable-automation"],
             )
             self._attached = False
 
