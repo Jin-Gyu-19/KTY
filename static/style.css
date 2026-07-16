@@ -279,11 +279,11 @@ button { white-space: nowrap; }
 /* ===== 사이드바 테마 토글 ===== */
 .nav-theme { padding: 8px 4px 2px; }
 .nav-theme-lab { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: #8b93a7; padding: 0 6px; }
-.theme-opts { display: flex; gap: 6px; margin-top: 6px; }
+.theme-opts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .theme-opt {
-  flex: 1; background: rgba(255,255,255,.06); color: #aeb6c8;
+  flex: 1 1 40%; background: rgba(255,255,255,.06); color: #aeb6c8;
   border: 1px solid transparent; border-radius: 8px; padding: 7px 8px;
-  font-size: 12px; font-weight: 600; cursor: pointer;
+  font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
 }
 .theme-opt:hover { color: #fff; }
 .theme-opt.on { background: var(--accent); color: #fff; }
@@ -320,3 +320,63 @@ body.aurora .tag { background: rgba(109,92,246,.12); }
 body.aurora .site.demo { background: rgba(255,255,255,.35); }
 body.aurora .badge.pending { background: rgba(120,120,150,.16); }
 body.aurora .progress { background: rgba(120,120,150,.2); }
+
+/* ===== Neo-brutalist 스킨 ===== */
+body.brutal {
+  --bg: #fdf6e3; --card: #ffffff; --line: #111111; --line-strong: #111111;
+  --text: #111111; --muted: #4a4a4a; --accent: #2f5bff; --onaccent: #fff;
+  --ok: #0a7a32; --warn: #8a4b00; --err: #c81e1e;
+  --card-shadow: none; --nav-bg: #111111; --sel: #fff3bf;
+}
+body.brutal .systbl,
+body.brutal .metric,
+body.brutal .target-row,
+body.brutal .modal-box {
+  border: 2px solid #111; box-shadow: 4px 4px 0 #111; border-radius: 0;
+}
+body.brutal .systbl th { background: #fff; border-bottom: 2px solid #111; }
+body.brutal .systbl td { border-bottom: 1px solid #111; }
+body.brutal .systbl .idx { background: #ffe14d; color: #111; border: 2px solid #111; border-radius: 0; }
+body.brutal .systbl .chip.type,
+body.brutal .tag { background: #fff; color: #111; border: 1.5px solid #111; border-radius: 0; }
+body.brutal .badge { border: 1.5px solid #111; border-radius: 0; }
+body.brutal .badge::before { display: none; }
+body.brutal .content button:not(.nav-btn):not(.theme-opt),
+body.brutal .modal-box button {
+  border: 2px solid #111; border-radius: 0; box-shadow: 2px 2px 0 #111;
+}
+body.brutal .content button:active { box-shadow: 0 0 0 #111; transform: translate(2px, 2px); }
+body.brutal .metric { border-radius: 0; }
+
+/* ===== Dark Terminal 스킨 ===== */
+body.terminal {
+  --bg: #0d1117; --card: #131a24; --line: #232c39; --line-strong: #313d4e;
+  --text: #d6deea; --muted: #8a97ab; --accent: #2dd4bf; --onaccent: #04211d;
+  --ok: #34d399; --warn: #e0a83a; --err: #f2696a;
+  --card-shadow: none; --nav-bg: #0b0f16; --sel: #16202c;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", "Malgun Gothic", monospace;
+}
+body.terminal .systbl th { background: #0f151d; }
+body.terminal .systbl .idx { background: #1b2530; color: #2dd4bf; }
+body.terminal .systbl .chip.type,
+body.terminal .tag { background: #1b2530; color: #8a97ab; border-color: #232c39; }
+body.terminal .site.demo { background: #131a24; }
+body.terminal .badge.pending { background: #1b2530; color: #8a97ab; }
+body.terminal .badge.in_progress,
+body.terminal .badge.awaiting { background: #332512; color: #e0a83a; }
+body.terminal .badge.done { background: #0f2f26; color: #34d399; }
+body.terminal .badge.error { background: #331a1c; color: #f2696a; }
+body.terminal .badge.blocked { background: #1c2230; color: #8aa0ff; }
+body.terminal .content button:not(.ghost):not(.nav-btn):not(.theme-opt),
+body.terminal .modal-box button:not(.ghost) { color: #04211d; }
+body.terminal .content button.ghost,
+body.terminal .modal-box button.ghost { background: #1b2530; color: var(--text); border: 1px solid var(--line); }
+body.terminal input[type=text],
+body.terminal input[type=password],
+body.terminal input[type=date],
+body.terminal input[type=file] { background: #0d1117; color: var(--text); border-color: var(--line); }
+body.terminal .progress { background: #1b2530; }
+body.terminal .pill.ok { background: #0f2f26; color: #34d399; }
+body.terminal .pill.no { background: #1b2530; color: #8a97ab; }
+body.terminal .pill.hit { background: #332512; color: #e0a83a; }
+body.terminal .modal-overlay { background: rgba(0,0,0,.6); }

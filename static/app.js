@@ -800,22 +800,24 @@ document.getElementById("testMode").onchange = (e) => {
   );
 };
 
-// ----- 테마(스킨) 전환: 기본 ↔ Glass/Aurora. 배치는 그대로, 색만 바뀜 -----
+// ----- 테마(스킨) 전환: 배치는 그대로, 색·질감만 바뀜 -----
+const THEMES = ["default", "aurora", "brutal", "terminal"];
 function applyTheme(name) {
-  const aurora = name === "aurora";
-  document.body.classList.toggle("aurora", aurora);
+  if (!THEMES.includes(name)) name = "default";
+  document.body.classList.remove("aurora", "brutal", "terminal");
+  if (name !== "default") document.body.classList.add(name);
   try {
-    localStorage.setItem("kty_theme", aurora ? "aurora" : "default");
+    localStorage.setItem("kty_theme", name);
   } catch (_) {
     /* 무시 */
   }
-  const d = document.getElementById("themeDefault");
-  const a = document.getElementById("themeAurora");
-  if (d) d.classList.toggle("on", !aurora);
-  if (a) a.classList.toggle("on", aurora);
+  document.querySelectorAll(".theme-opt").forEach((b) => {
+    b.classList.toggle("on", b.dataset.theme === name);
+  });
 }
-document.getElementById("themeDefault").onclick = () => applyTheme("default");
-document.getElementById("themeAurora").onclick = () => applyTheme("aurora");
+document.querySelectorAll(".theme-opt").forEach((b) => {
+  b.onclick = () => applyTheme(b.dataset.theme);
+});
 applyTheme(
   (() => {
     try {
