@@ -184,5 +184,8 @@ def import_from_mail(
         "subject_matched": subject_matched,
         "parsed": len(found),
         "matched_no_parse": matched_no_parse[:5],
+        "recent_subjects": [
+            (m.get("subject", "") or "")[:40] for m in messages[:5]
+        ],
     }
     return found, stats

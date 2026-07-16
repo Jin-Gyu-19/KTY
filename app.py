@@ -193,6 +193,8 @@ def api_mail_import():
         )
         if stats["subject_matched"] == 0:
             message += " (제목에 퇴사/퇴직이 있는 메일이 없습니다)"
+            if stats.get("recent_subjects"):
+                message += "\n최근 메일 제목: " + " | ".join(stats["recent_subjects"])
         elif stats["matched_no_parse"]:
             message += " 파싱 실패 제목: " + ", ".join(stats["matched_no_parse"])
     return jsonify(
