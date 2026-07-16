@@ -114,7 +114,7 @@ h1 { font-size: 22px; }
 /* 좌: 대상 시스템(고정), 우: 컨트롤 + 대상자 목록 */
 .layout {
   display: grid;
-  grid-template-columns: 480px 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);  /* 5:5 */
   gap: 22px;
   align-items: start;
 }
