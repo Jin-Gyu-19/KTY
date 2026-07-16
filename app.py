@@ -158,7 +158,9 @@ def api_mail_import():
     mailbox = os.environ.get("M365_MAILBOX", "").strip()
     # 핵심 키워드는 코드에 항상 포함(.py는 UTF-8이라 안 깨짐). .env 값은 추가로 합친다.
     keyword = (os.environ.get("MAIL_SUBJECT_KEYWORD", "") or "").strip() + ",퇴사,퇴직,퇴사자"
-    sender = os.environ.get("MAIL_SENDER", "").strip() or None  # 비우면 발신자 안 따짐
+    # 발신자는 영문(이메일 주소)일 때만 필터로 쓴다. 한글 이름은 인코딩 문제로 무시.
+    _s = os.environ.get("MAIL_SENDER", "").strip()
+    sender = _s if (_s and _s.isascii()) else None
     try:
         since_days = int(os.environ.get("MAIL_SINCE_DAYS", "30") or "30")
     except ValueError:
@@ -230,7 +232,8 @@ def api_mail_list():
 
     mailbox = os.environ.get("M365_MAILBOX", "").strip()
     keyword = (os.environ.get("MAIL_SUBJECT_KEYWORD", "") or "").strip() + ",퇴사,퇴직,퇴사자"
-    sender = os.environ.get("MAIL_SENDER", "").strip() or None
+    _s = os.environ.get("MAIL_SENDER", "").strip()
+    sender = _s if (_s and _s.isascii()) else None
     try:
         since_days = int(os.environ.get("MAIL_SINCE_DAYS", "30") or "30")
     except ValueError:
