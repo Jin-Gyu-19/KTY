@@ -66,12 +66,13 @@ def parse_resignation(text: str) -> dict | None:
                 name = m.group(1)
                 break
 
-    # 라벨이 전혀 없는 형식: 이름만 있는 줄(한글 2~4자)을 이름으로 본다.
+    # 라벨이 전혀 없는 형식: 이름만 있는 줄(한글 2~4자, 뒤에 숫자/공백 허용)을 이름으로 본다.
     lines = [ln.strip() for ln in text.splitlines()]
     if not name:
         for i, s in enumerate(lines):
-            if re.fullmatch(r"[가-힣]{2,4}", s) and s not in _stop:
-                name = s
+            m = re.fullmatch(r"([가-힣]{2,4})[\d\s]*", s)
+            if m and m.group(1) not in _stop:
+                name = m.group(1)
                 # 바로 다음 줄이 부서일 수 있음(퇴사/날짜가 아니면)
                 if i + 1 < len(lines):
                     nxt = lines[i + 1]
