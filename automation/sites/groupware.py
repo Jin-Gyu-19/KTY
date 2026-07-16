@@ -384,11 +384,20 @@ class GroupwareScenario(SiteScenario):
             except Exception:
                 return
         else:
-            # 앱 저장 정보 없음 → 자동완성으로 이미 채워졌는지 확인
+            # 앱 저장 정보 없음 → 크로미움 저장 비밀번호를 최대한 자동으로 써본다.
             try:
-                page.wait_for_timeout(1200)  # 자동완성 반영 시간
+                page.wait_for_timeout(1000)  # (a) 페이지 열 때 자동완성 반영 시간
                 if not (pw.input_value() or "").strip():
-                    return  # 자동완성 안 됨 → 사람이 직접 로그인해야 함
+                    # (b) 비번칸 포커스 후 방향키↓ (+ Enter) 로 저장된 계정 선택 시도
+                    pw.click()
+                    page.wait_for_timeout(200)
+                    pw.press("ArrowDown")
+                    page.wait_for_timeout(500)
+                    if not (pw.input_value() or "").strip():
+                        pw.press("Enter")  # 드롭다운 항목 선택(폼 제출 아님)
+                        page.wait_for_timeout(600)
+                if not (pw.input_value() or "").strip():
+                    return  # 그래도 비어있으면 사람이 직접 로그인
             except Exception:
                 return
 
