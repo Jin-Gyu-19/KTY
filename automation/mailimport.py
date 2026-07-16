@@ -184,13 +184,15 @@ def import_from_mail(
         else:
             matched_no_parse.append(subject[:40])
 
+    all_subjects = [(m.get("subject", "") or "") for m in messages]
     stats = {
         "total": len(messages),
         "subject_matched": subject_matched,
         "parsed": len(found),
         "matched_no_parse": matched_no_parse[:5],
-        "recent_subjects": [
-            (m.get("subject", "") or "")[:40] for m in messages[:5]
-        ],
+        "keywords": keywords,
+        "recent_subjects": [s[:40] for s in all_subjects[:15]],
+        # 키워드와 무관하게 '퇴' 글자가 든 제목(있으면 매칭 로직 문제일 가능성)
+        "subjects_with_toi": [s[:40] for s in all_subjects if "퇴" in s][:5],
     }
     return found, stats
