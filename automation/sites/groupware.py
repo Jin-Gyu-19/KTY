@@ -336,7 +336,51 @@ class GroupwareScenario(SiteScenario):
                 ok=False, message=f"처리 중 오류: {exc} ── 진단: {diag}"
             )
 
+    def _auto_login(self, page) -> None:
+        """로그인 화면이면 저장된 ID/PW 로 자동 로그인한다(있을 때만).
+
+        gw.bdo.kr 로그인 폼 셀렉터가 확인되면 정확히 맞추고, 지금은 일반적인
+        형태(보이는 텍스트칸=아이디, 비밀번호칸=PW)로 채운 뒤 제출한다.
+        """
+        creds = getattr(self, "credentials", None)
+        if not creds or not creds.get("username"):
+            return
+        try:
+            pw = page.locator("input[type=password]:visible").first
+            if pw.count() == 0:
+                return  # 비밀번호칸이 없으면 로그인 화면이 아님
+        except Exception:
+            return
+        try:
+            uid = page.locator(
+                "input[type=text]:visible, input[type=email]:visible"
+            ).first
+            uid.fill(creds["username"])
+            pw.fill(creds["password"])
+            clicked = False
+            for sel in (
+                "button:has-text('로그인')",
+                "input[type=submit]",
+                "a:has-text('로그인')",
+                "#loginBtn",
+            ):
+                try:
+                    page.locator(sel).first.click(timeout=1500)
+                    clicked = True
+                    break
+                except Exception:
+                    continue
+            if not clicked:
+                pw.press("Enter")
+            page.wait_for_load_state("domcontentloaded")
+            page.wait_for_timeout(1500)
+        except Exception:
+            pass
+
     def _run_inner(self, page, employee: Employee) -> StepResult:
+        # ----- 1) 로그인 화면이면 자동 로그인 (저장된 정보 있을 때) -----
+        self._auto_login(page)
+
         # ----- 2) 관리자 모드 + 사원정보관리 자동 이동 -----
         ok = self._ensure_admin_emp(page)
 

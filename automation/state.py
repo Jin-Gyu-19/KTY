@@ -28,6 +28,7 @@ _LOCK = threading.Lock()
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 _PATH = os.path.join(_DATA_DIR, "progress.json")  # 현재 작업 세트
 _HIST = os.path.join(_DATA_DIR, "history.json")  # 지난 작업 보관(최근 처리내용)
+_CRED = os.path.join(_DATA_DIR, "credentials.json")  # 사이트별 자동 로그인 정보(로컬 전용)
 _HIST_MAX = 20
 
 
@@ -221,6 +222,50 @@ def list_history() -> list[dict]:
                 }
             )
         return out
+
+
+# ----- 사이트별 자동 로그인 정보 (로컬 전용, git 제외) -----
+def _load_cred() -> dict:
+    if not os.path.exists(_CRED):
+        return {}
+    try:
+        with open(_CRED, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_cred(data: dict) -> None:
+    os.makedirs(_DATA_DIR, exist_ok=True)
+    tmp = _CRED + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, _CRED)
+
+
+def set_credentials(site_id: str, username: str, password: str) -> None:
+    with _LOCK:
+        data = _load_cred()
+        data[site_id] = {"username": username, "password": password}
+        _save_cred(data)
+
+
+def clear_credentials(site_id: str) -> None:
+    with _LOCK:
+        data = _load_cred()
+        if site_id in data:
+            del data[site_id]
+            _save_cred(data)
+
+
+def get_credentials(site_id: str) -> dict | None:
+    with _LOCK:
+        return _load_cred().get(site_id)
+
+
+def has_credentials(site_id: str) -> bool:
+    c = get_credentials(site_id)
+    return bool(c and c.get("username"))
 
 
 def restore(session_id: str | None = None) -> bool:

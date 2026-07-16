@@ -219,8 +219,51 @@ function renderChecklist(t) {
     doneBtn.onclick = () => run(() => api(`/api/site/${s.id}/done`, "POST"));
     actions.appendChild(doneBtn);
 
+    if (!isApi) {
+      const credBtn = btn(s.has_credentials ? "🔑 저장됨" : "🔑 로그인정보", "ghost");
+      credBtn.onclick = () => toggleCredForm(row, s);
+      actions.appendChild(credBtn);
+    }
+
     listEl.appendChild(row);
   });
+}
+
+function toggleCredForm(row, s) {
+  const existing = row.querySelector(".cred-form");
+  if (existing) {
+    existing.remove();
+    return;
+  }
+  const form = document.createElement("div");
+  form.className = "cred-form";
+  const user = document.createElement("input");
+  user.type = "text";
+  user.placeholder = "아이디";
+  const pass = document.createElement("input");
+  pass.type = "password";
+  pass.placeholder = "비밀번호";
+  const save = btn("저장", "");
+  save.onclick = async () => {
+    try {
+      await api(`/api/site/${s.id}/credentials`, "POST", {
+        username: user.value.trim(),
+        password: pass.value,
+      });
+      form.remove();
+      await refresh();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+  const hint = document.createElement("span");
+  hint.className = "muted";
+  hint.textContent = "이 PC에만 저장됩니다. 아이디를 비우고 저장하면 삭제.";
+  form.appendChild(user);
+  form.appendChild(pass);
+  form.appendChild(save);
+  form.appendChild(hint);
+  row.appendChild(form);
 }
 
 async function run(fn) {

@@ -42,7 +42,13 @@ _TEST_MODE = {"on": False}
 
 def _scenario_list() -> list[dict]:
     return [
-        {"id": s.id, "name": s.name, "kind": s.kind, "url": s.url}
+        {
+            "id": s.id,
+            "name": s.name,
+            "kind": s.kind,
+            "url": s.url,
+            "has_credentials": state.has_credentials(s.id),
+        }
         for s in registry.all_scenarios()
     ]
 
@@ -73,6 +79,20 @@ def api_testmode():
     data = request.get_json(force=True, silent=True) or {}
     _TEST_MODE["on"] = bool(data.get("on"))
     return jsonify({"test_mode": _TEST_MODE["on"]})
+
+
+@app.post("/api/site/<site_id>/credentials")
+def api_set_credentials(site_id: str):
+    if registry.get(site_id) is None:
+        return jsonify({"error": "알 수 없는 사이트"}), 404
+    data = request.get_json(force=True, silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    if not username:
+        state.clear_credentials(site_id)  # 아이디 비우면 저장 해제
+    else:
+        state.set_credentials(site_id, username, password)
+    return jsonify({"has_credentials": state.has_credentials(site_id)})
 
 
 @app.get("/api/history")
@@ -239,6 +259,7 @@ def api_run(site_id: str):
         return jsonify({"error": "먼저 퇴사자를 입력하세요."}), 400
     try:
         scenario.test_mode = _TEST_MODE["on"]  # 실행 직전 테스트 모드 반영
+        scenario.credentials = state.get_credentials(site_id)
         if scenario.kind == "api":
             result = scenario.run_api(emp)
         else:
@@ -276,6 +297,7 @@ def api_run_all():
                 continue
             try:
                 s.test_mode = _TEST_MODE["on"]
+                s.credentials = state.get_credentials(s.id)
                 if s.kind == "api":
                     result = s.run_api(emp)
                 else:
