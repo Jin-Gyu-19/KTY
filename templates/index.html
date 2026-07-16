@@ -12,27 +12,14 @@
 
     <section class="card">
       <div class="row">
-        <label>이름
-          <input id="name" type="text" placeholder="홍길동" />
-        </label>
-        <label>퇴사일
-          <input id="resign_date" type="date" />
-        </label>
-        <button id="addBtn">추가</button>
-      </div>
-
-      <div class="row" style="margin-top:12px;">
-        <label>엑셀 업로드 (이름, 퇴사일 열)
-          <input id="excel" type="file" accept=".xlsx,.xls" />
-        </label>
-        <button id="uploadBtn" class="ghost">불러오기</button>
-      </div>
-
-      <div class="row" style="margin-top:12px;">
+        <button id="manualAddBtn">＋ 퇴사자 수동추가</button>
         <button id="mailBtn" class="ghost">📧 메일에서 퇴사자 가져오기</button>
         <button id="mailListBtn" class="ghost">📋 읽은 메일 보기</button>
-        <span class="muted">M365 메일의 퇴사 공지에서 이름·퇴사일을 읽어 목록에 등록</span>
       </div>
+      <p class="muted" style="margin:8px 2px 0;">
+        직접 입력·엑셀 업로드는 [퇴사자 수동추가], M365 메일의 퇴사 공지에서
+        이름·퇴사일을 읽어오려면 [메일에서 퇴사자 가져오기]를 누르세요.
+      </p>
 
       <label class="testmode">
         <input id="testMode" type="checkbox" />
@@ -53,6 +40,33 @@
     <h2 class="section-title" id="activeTitle"></h2>
     <section id="checklist"></section>
   </main>
+
+  <div id="manualModal" class="modal-overlay" style="display:none;">
+    <div class="modal-box">
+      <div class="modal-head">
+        <b>퇴사자 수동추가</b>
+        <button id="manualClose" class="ghost">닫기</button>
+      </div>
+      <div id="manualBody" style="padding:16px;">
+        <div class="row">
+          <label>이름
+            <input id="name" type="text" placeholder="홍길동" />
+          </label>
+          <label>퇴사일
+            <input id="resign_date" type="date" />
+          </label>
+          <button id="addBtn">추가</button>
+        </div>
+
+        <div class="row" style="margin-top:16px;">
+          <label>엑셀 업로드 (이름, 퇴사일 열)
+            <input id="excel" type="file" accept=".xlsx,.xls" />
+          </label>
+          <button id="uploadBtn" class="ghost">불러오기</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div id="modal" class="modal-overlay" style="display:none;">
     <div class="modal-box">

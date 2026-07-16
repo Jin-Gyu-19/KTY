@@ -83,9 +83,9 @@ def _run_mail_import():
     _s = os.environ.get("MAIL_SENDER", "").strip()
     sender = _s if (_s and _s.isascii()) else None
     try:
-        since_days = int(os.environ.get("MAIL_SINCE_DAYS", "30") or "30")
+        since_days = int(os.environ.get("MAIL_SINCE_DAYS", "90") or "90")
     except ValueError:
-        since_days = 30
+        since_days = 90
 
     found, _stats = mailimport.import_from_mail(mailbox, keyword, sender, since_days=since_days)
     existing = {tg["name"] for tg in state.snapshot()["targets"]}
@@ -246,9 +246,9 @@ def api_mail_import():
     _s = os.environ.get("MAIL_SENDER", "").strip()
     sender = _s if (_s and _s.isascii()) else None
     try:
-        since_days = int(os.environ.get("MAIL_SINCE_DAYS", "30") or "30")
+        since_days = int(os.environ.get("MAIL_SINCE_DAYS", "90") or "90")
     except ValueError:
-        since_days = 30
+        since_days = 90
     try:
         found, stats = mailimport.import_from_mail(
             mailbox, keyword, sender, since_days=since_days
@@ -319,9 +319,9 @@ def api_mail_list():
     _s = os.environ.get("MAIL_SENDER", "").strip()
     sender = _s if (_s and _s.isascii()) else None
     try:
-        since_days = int(os.environ.get("MAIL_SINCE_DAYS", "30") or "30")
+        since_days = int(os.environ.get("MAIL_SINCE_DAYS", "90") or "90")
     except ValueError:
-        since_days = 30
+        since_days = 90
     try:
         rows = mailimport.debug_list(mailbox, keyword, sender, since_days=since_days)
     except Exception as exc:  # noqa: BLE001

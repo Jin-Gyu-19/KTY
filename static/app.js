@@ -383,6 +383,17 @@ async function runAllWith(keys) {
   });
 }
 
+// ----- 수동추가 모달 -----
+function openManual() {
+  document.getElementById("manualModal").style.display = "flex";
+  document.getElementById("name").focus();
+}
+function closeManual() {
+  document.getElementById("manualModal").style.display = "none";
+}
+document.getElementById("manualAddBtn").onclick = openManual;
+document.getElementById("manualClose").onclick = closeManual;
+
 // ----- 입력 핸들러 -----
 document.getElementById("addBtn").onclick = async () => {
   const name = document.getElementById("name").value.trim();
@@ -390,6 +401,8 @@ document.getElementById("addBtn").onclick = async () => {
   try {
     await api("/api/target", "POST", { name, resign_date });
     document.getElementById("name").value = "";
+    document.getElementById("resign_date").value = "";
+    closeManual();
     await refresh();
   } catch (e) {
     alert(e.message);
@@ -409,6 +422,7 @@ document.getElementById("uploadBtn").onclick = async () => {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "업로드 실패");
     fileEl.value = "";
+    closeManual();
     await refresh();
   } catch (e) {
     alert(e.message);

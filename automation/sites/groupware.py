@@ -441,6 +441,27 @@ class GroupwareScenario(SiteScenario):
             page.wait_for_timeout(500)
 
     def _run_inner(self, page, employee: Employee) -> StepResult:
+        # ----- 0) 퇴사일이 아직 안 됐으면 진행하지 않는다(안전) -----
+        # 더존은 퇴사일을 '처리 당일'로 고정하므로, 미래 퇴사자를 오늘 처리하면
+        # 잘못된 퇴사일이 박힌다. 반드시 퇴사일 당일 이후에만 처리한다.
+        if not getattr(self, "test_mode", False):
+            import datetime as _dt
+
+            try:
+                rd = _dt.date.fromisoformat((employee.resign_date or "").strip())
+                if _dt.date.today() < rd:
+                    return StepResult(
+                        ok=False,
+                        message=(
+                            f"⚠️ '{employee.name}'의 퇴사일({employee.resign_date})이 "
+                            f"아직 안 됐습니다(오늘 {_dt.date.today().isoformat()}). "
+                            "더존은 퇴사일이 '처리하는 당일'로 고정되므로, "
+                            f"{employee.resign_date} 당일 이후에 처리해야 올바른 퇴사일이 기록됩니다."
+                        ),
+                    )
+            except (ValueError, TypeError):
+                pass
+
         # ----- 0) 이전 사람 퇴사처리 팝업이 남아있으면 닫는다 -----
         # (더존 팝업은 창 이름이 empResignPop 로 고정이라, 안 닫으면 다음 사람 때
         #  같은 창을 재사용해 새 팝업이 안 뜨고 진행이 막힌다.)

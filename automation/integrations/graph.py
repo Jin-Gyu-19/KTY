@@ -116,26 +116,41 @@ class GraphClient:
         )
         r.raise_for_status()
 
-    def list_recent_messages(self, mailbox: str, top: int = 100) -> list[dict]:
+    def list_recent_messages(
+        self, mailbox: str, top: int = 100, since_iso: str | None = None
+    ) -> list[dict]:
         """받은편지함의 최근 메일을 가져온다(Mail.Read 권한 필요).
 
         /messages 는 모든 폴더가 섞이므로 받은편지함(inbox)만 콕 집어 읽는다.
+        받은편지함이 많아도 조회 기간(since_iso)까지는 확실히 닿도록 페이지를
+        따라가며(@odata.nextLink) 가져온다. top 은 '전체 상한'으로 쓴다.
         기간·제목 필터는 호출부에서 파이썬으로 처리한다(가장 확실).
         """
         import requests
 
-        r = requests.get(
-            f"{GRAPH}/users/{mailbox}/mailFolders/inbox/messages",
-            headers=self._headers(),
-            params={
-                "$top": top,
-                "$select": "subject,receivedDateTime,from,bodyPreview,body",
-                "$orderby": "receivedDateTime desc",
-            },
-            timeout=30,
-        )
-        r.raise_for_status()
-        return r.json().get("value", [])
+        url = f"{GRAPH}/users/{mailbox}/mailFolders/inbox/messages"
+        params = {
+            "$top": min(top, 200),  # 페이지당 개수(그래프 상한 고려)
+            "$select": "subject,receivedDateTime,from,bodyPreview,body",
+            "$orderby": "receivedDateTime desc",
+        }
+        out: list[dict] = []
+        for _ in range(50):  # 페이지 폭주 방지용 안전 상한
+            r = requests.get(url, headers=self._headers(), params=params, timeout=30)
+            r.raise_for_status()
+            data = r.json()
+            page = data.get("value", [])
+            out.extend(page)
+            # 조회 기간을 지났거나(내림차순) 상한에 닿으면 그만
+            if since_iso and page and (page[-1].get("receivedDateTime", "") < since_iso):
+                break
+            if len(out) >= top:
+                break
+            url = data.get("@odata.nextLink")
+            params = None  # nextLink 에 쿼리가 포함돼 있음
+            if not url:
+                break
+        return out[:top]
 
     def search_messages(self, mailbox: str, search_term: str, top: int = 50) -> list[dict]:
         """메일함 전체에서 검색어로 메일을 찾는다($search, 폴더 깊이 무관)."""
