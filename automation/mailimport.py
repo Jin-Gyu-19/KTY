@@ -44,20 +44,39 @@ def _normalize_date(y: str, mo: str, d: str) -> str:
 def parse_resignation(text: str) -> dict | None:
     """메일 텍스트에서 {name, resign_date, dept?} 를 추출한다. 못 찾으면 None."""
     text = (text or "").replace("\xa0", " ")
+    dept = None
 
-    # 이름: 먼저 '이름/성명/성함/직원명' 을 우선 찾는다.
+    _stop = {
+        "안내", "명단", "처리", "목록", "현황", "보고", "공지", "관련",
+        "확인", "부탁", "감사", "성명", "이름", "부서", "소속", "퇴사",
+        "퇴직", "대상", "직원", "사원", "귀하", "참조", "수신",
+    }
+
+    # 이름: 먼저 '이름/성명/성함/직원명' 라벨을 우선 찾는다.
     name = None
     m_strong = re.search(
         r"(?:이\s*름|성\s*명|성\s*함|직원명)\s*[:：]?\s*([가-힣]{2,4})", text
     )
     if m_strong:
         name = m_strong.group(1)
-    else:
-        # 없으면 '대상자/퇴사자' 뒤 이름 (단, '안내/명단' 같은 제목성 단어는 제외)
-        _stop = {"안내", "명단", "처리", "목록", "현황", "보고", "공지", "관련"}
-        for m in re.finditer(r"(?:대상자|퇴사자)\s*[:：]?\s*([가-힣]{2,4})", text):
+    if not name:
+        # '대상자/퇴사자' 뒤 이름. (?![가-힣]) 로 더 긴 단어의 일부(안내드립…)는 제외
+        for m in re.finditer(r"(?:대상자|퇴사자)\s*[:：]?\s*([가-힣]{2,4})(?![가-힣])", text):
             if m.group(1) not in _stop:
                 name = m.group(1)
+                break
+
+    # 라벨이 전혀 없는 형식: 이름만 있는 줄(한글 2~4자)을 이름으로 본다.
+    lines = [ln.strip() for ln in text.splitlines()]
+    if not name:
+        for i, s in enumerate(lines):
+            if re.fullmatch(r"[가-힣]{2,4}", s) and s not in _stop:
+                name = s
+                # 바로 다음 줄이 부서일 수 있음(퇴사/날짜가 아니면)
+                if i + 1 < len(lines):
+                    nxt = lines[i + 1]
+                    if nxt and "퇴사" not in nxt and not re.search(r"20\d{2}", nxt):
+                        dept = dept or nxt
                 break
 
     # 부서(선택)
