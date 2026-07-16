@@ -533,8 +533,9 @@ class GroupwareScenario(SiteScenario):
 
         who = f"{name_in_popup or employee.name}"
 
-        # 테스트 모드: 실제 퇴사 처리 없이 팝업을 바로 닫고 완료로 표시(다음 사람 테스트용)
+        # 테스트 모드: [다음]까지 진행해보되 [완료]는 누르지 않고 팝업을 닫는다(실제 퇴사 X)
         if getattr(self, "test_mode", False):
+            tail = self._auto_next(popup)
             try:
                 popup.close()
             except Exception:
@@ -543,8 +544,7 @@ class GroupwareScenario(SiteScenario):
                 ok=True,
                 awaiting=False,
                 message=(
-                    f"[테스트] '{who}' 검색·선택·퇴사처리 팝업까지 확인 후 팝업을 닫았습니다. "
-                    "실제 퇴사 처리는 하지 않았습니다."
+                    f"[테스트] '{who}' 팝업 진행: {tail} → [완료] 없이 닫음(실제 퇴사 안 함)."
                 ),
             )
 
