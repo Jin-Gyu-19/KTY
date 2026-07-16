@@ -107,6 +107,18 @@ button:disabled { opacity: .5; cursor: default; }
 .badge.awaiting { background: #ffe4c2; color: var(--warn); }
 .badge.done { background: #d9f2e3; color: var(--ok); }
 .badge.error { background: #fadadd; color: var(--err); }
+.badge.blocked { background: #e6e9f5; color: #5a63c0; }
+
+.bulk-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 8px; flex-wrap: wrap;
+}
+.bulk-bar input[type=checkbox] { width: auto; margin-right: 4px; }
+.target-row input[type=checkbox] { width: auto; flex: none; }
+.target-row .mmain { flex: 1; min-width: 0; }
+.site.off { opacity: .5; }
+.site .inc { display: flex; align-items: center; }
+.site .inc input { width: auto; }
 .tag { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
 
 .modal-overlay {

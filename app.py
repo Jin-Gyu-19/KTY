@@ -42,6 +42,63 @@ state.begin_session()
 # 테스트 모드(실제 처리 없이 흐름만 확인). 앱 재시작하면 꺼진다.
 _TEST_MODE = {"on": False}
 
+# 처리에 포함할 사이트(기본 전체). 여기서 빠지면 순차 처리에서 제외된다.
+_ENABLED_SITES = {s.id for s in registry.all_scenarios()}
+# 앱 시작 후 메일 자동 불러오기를 1회만 하기 위한 플래그
+_AUTO_IMPORTED = {"done": False}
+
+
+def _date_block(resign_date: str) -> str | None:
+    """퇴사일이 아직 안 됐으면 안내 문구를, 처리 가능하면 None 을 돌려준다."""
+    import datetime as _dt
+
+    try:
+        rd = _dt.date.fromisoformat((resign_date or "").strip())
+    except Exception:
+        return None  # 날짜 형식이 이상하면 막지 않는다
+    today = _dt.date.today()
+    if today < rd:
+        return f"퇴사일({resign_date}) 전입니다. {resign_date} 이후에 처리할 수 있습니다. (오늘 {today.isoformat()})"
+    return None
+
+
+def _run_mail_import():
+    """메일에서 퇴사자를 읽어 대상자로 등록한다. (added, duplicates) 반환."""
+    import os
+
+    from automation import mailimport
+
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+            override=True,
+        )
+    except Exception:
+        pass
+
+    mailbox = os.environ.get("M365_MAILBOX", "").strip()
+    keyword = (os.environ.get("MAIL_SUBJECT_KEYWORD", "") or "").strip() + ",퇴사,퇴직,퇴사자"
+    _s = os.environ.get("MAIL_SENDER", "").strip()
+    sender = _s if (_s and _s.isascii()) else None
+    try:
+        since_days = int(os.environ.get("MAIL_SINCE_DAYS", "30") or "30")
+    except ValueError:
+        since_days = 30
+
+    found, _stats = mailimport.import_from_mail(mailbox, keyword, sender, since_days=since_days)
+    existing = {tg["name"] for tg in state.snapshot()["targets"]}
+    site_ids = _site_ids()
+    added, duplicates = [], []
+    for t in found:
+        if t["name"] in existing:
+            duplicates.append(t)
+        else:
+            state.add_target(t["name"], t["resign_date"], site_ids)
+            added.append(t)
+    return added, duplicates
+
 
 def _scenario_list() -> list[dict]:
     return [
@@ -73,7 +130,34 @@ def api_status():
             "targets": state.snapshot(),
             "restorable": state.latest_restorable(),
             "test_mode": _TEST_MODE["on"],
+            "enabled_sites": sorted(_ENABLED_SITES),
         }
+    )
+
+
+@app.post("/api/sites/enabled")
+def api_sites_enabled():
+    ids = (request.get_json(force=True, silent=True) or {}).get("ids")
+    if isinstance(ids, list):
+        _ENABLED_SITES.clear()
+        _ENABLED_SITES.update(str(i) for i in ids)
+    return jsonify({"enabled_sites": sorted(_ENABLED_SITES)})
+
+
+@app.post("/api/mail/auto-import")
+def api_mail_auto_import():
+    """앱 시작 후 1회 자동 메일 가져오기(설정 안 됐으면 조용히 넘어감)."""
+    if _AUTO_IMPORTED["done"]:
+        return jsonify({"skipped": True, "added": []})
+    _AUTO_IMPORTED["done"] = True
+    try:
+        added, duplicates = _run_mail_import()
+    except Exception:
+        return jsonify({"skipped": True, "added": []})  # 미설정/오류는 조용히
+    names = ", ".join(f"{t['name']}({t['resign_date']})" for t in added[:8])
+    msg = f"메일에서 퇴사자 {len(added)}명을 자동으로 불러왔습니다: {names}" if added else ""
+    return jsonify(
+        {"targets": state.snapshot(), "added": added, "duplicates": duplicates, "message": msg}
     )
 
 
@@ -368,6 +452,11 @@ def api_run(site_id: str):
         return jsonify({"error": "알 수 없는 사이트"}), 404
     if emp is None:
         return jsonify({"error": "먼저 퇴사자를 입력하세요."}), 400
+    # 퇴사일 이전이면 처리 불가(테스트 모드는 예외로 통과시켜 흐름 확인 가능)
+    block = _date_block(emp.resign_date)
+    if block and not _TEST_MODE["on"]:
+        state.set_site(emp.name, emp.resign_date, site_id, "blocked", block)
+        return jsonify({"ok": True, "awaiting": False, "blocked": True, "message": block})
     try:
         scenario.test_mode = _TEST_MODE["on"]  # 실행 직전 테스트 모드 반영
         scenario.credentials = state.get_credentials(site_id)
@@ -398,12 +487,24 @@ def api_run_all():
     - 테스트 모드: 각자 팝업까지 확인 후 닫고 다음 사람으로 (끝까지 자동).
     - 실제 모드: 사람이 [완료]해야 하는 지점(awaiting)에서 멈추고 안내한다.
     """
-    order = list(registry.all_scenarios())
+    body = request.get_json(force=True, silent=True) or {}
+    only_keys = body.get("keys")  # 선택한 대상만 처리(없으면 전체)
+    # 포함(체크된) 사이트만 순서대로
+    order = [s for s in registry.all_scenarios() if s.id in _ENABLED_SITES]
     processed = 0
     errors = []
     opened = set()  # 사이트별로 브라우저는 한 번만 연다(사람마다 재이동 방지)
     for tg in state.snapshot()["targets"]:
+        if only_keys and tg["key"] not in only_keys:
+            continue
         emp = Employee(name=tg["name"], resign_date=tg["resign_date"])
+        # 퇴사일 이전이면 이 사람은 건너뛰고 blocked 표시(테스트 모드는 예외)
+        block = _date_block(emp.resign_date)
+        if block and not _TEST_MODE["on"]:
+            for s in order:
+                if tg["sites"].get(s.id, {}).get("status") != "done":
+                    state.set_site(emp.name, emp.resign_date, s.id, "blocked", block)
+            continue
         for s in order:
             if tg["sites"].get(s.id, {}).get("status") == "done":
                 continue
@@ -441,16 +542,21 @@ def api_run_all():
                 errors.append(f"{emp.name}·{s.name}")
 
     # 사람별 결과를 그대로 보여준다(어디까지 됐는지 투명하게).
-    label = {"done": "완료", "awaiting": "완료대기", "error": "실패", "pending": "대기"}
+    label = {
+        "done": "완료", "awaiting": "완료대기", "error": "실패",
+        "pending": "대기", "blocked": "퇴사일전",
+    }
     final = state.snapshot()["targets"]
     lines = []
     for tg in final:
+        if only_keys and tg["key"] not in only_keys:
+            continue
         parts = []
         for s in order:
             st = tg["sites"].get(s.id, {}).get("status", "pending")
             parts.append(f"{s.name}={label.get(st, st)}")
         lines.append(f"· {tg['name']}: " + ", ".join(parts))
-    msg = f"순차 처리 종료 (총 {len(final)}명)\n" + "\n".join(lines)
+    msg = f"순차 처리 종료 ({len(lines)}명)\n" + "\n".join(lines)
     return jsonify({"targets": state.snapshot(), "message": msg})
 
 

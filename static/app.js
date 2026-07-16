@@ -6,7 +6,12 @@ const STATUS_LABEL = {
   awaiting: "확인 필요",
   done: "완료",
   error: "오류",
+  blocked: "퇴사일 전",
 };
+
+let enabledSites = null; // null = 아직 모름(전체로 취급)
+const selectedKeys = new Set(); // 다중선택된 대상자 key
+let autoImportTried = false;
 
 async function api(path, method = "GET", body = null) {
   const opts = { method, headers: { "Content-Type": "application/json" } };
@@ -24,11 +29,27 @@ let restorePrompted = false;
 async function refresh() {
   const data = await api("/api/status");
   scenarios = data.scenarios;
+  enabledSites = data.enabled_sites || scenarios.map((s) => s.id);
   renderTargetList(data.targets);
   renderChecklist(data.targets);
   maybePromptRestore(data.restorable);
   const tm = document.getElementById("testMode");
   if (tm) tm.checked = !!data.test_mode;
+}
+
+// 앱 시작 후 1회: 메일에서 퇴사자 자동 불러오기
+async function autoImport() {
+  if (autoImportTried) return;
+  autoImportTried = true;
+  try {
+    const r = await api("/api/mail/auto-import", "POST");
+    if (r && r.message) {
+      await refresh();
+      alert("🔔 " + r.message);
+    }
+  } catch (e) {
+    /* 미설정/오류는 조용히 */
+  }
 }
 
 // 앱을 열 때 이전 작업이 있으면 한 번 물어본다.
@@ -120,22 +141,64 @@ function renderTargetList(t) {
     return;
   }
 
+  // 살아있는 key 만 선택 유지
+  const liveKeys = new Set(list.map((x) => x.key));
+  [...selectedKeys].forEach((k) => { if (!liveKeys.has(k)) selectedKeys.delete(k); });
+
   const bar = document.createElement("div");
-  bar.style.textAlign = "right";
-  bar.style.marginBottom = "6px";
+  bar.className = "bulk-bar";
+  const left = document.createElement("span");
+  left.className = "muted";
+  const selAll = document.createElement("input");
+  selAll.type = "checkbox";
+  selAll.checked = list.length > 0 && list.every((x) => selectedKeys.has(x.key));
+  selAll.onchange = () => {
+    if (selAll.checked) list.forEach((x) => selectedKeys.add(x.key));
+    else selectedKeys.clear();
+    renderTargetList(t);
+  };
+  left.appendChild(selAll);
+  left.appendChild(document.createTextNode(` 전체선택 (${selectedKeys.size}명 선택)`));
+
+  const right = document.createElement("span");
+  right.className = "target-actions";
+  const runSel = btn("▶ 선택 순차 처리", "");
+  runSel.disabled = selectedKeys.size === 0;
+  runSel.onclick = () => runAllWith([...selectedKeys]);
+  const delSel = btn("선택 삭제", "ghost");
+  delSel.disabled = selectedKeys.size === 0;
+  delSel.onclick = async () => {
+    if (!confirm(`선택한 ${selectedKeys.size}명을 삭제할까요?`)) return;
+    for (const k of [...selectedKeys]) await api("/api/target/remove", "POST", { key: k });
+    await refresh();
+  };
   const clearAll = btn("전체 비우기", "ghost");
   clearAll.onclick = () => {
     if (confirm("대상자 목록을 전부 비울까요?"))
       run(() => api("/api/targets/clear", "POST"));
   };
-  bar.appendChild(clearAll);
+  right.appendChild(runSel);
+  right.appendChild(delSel);
+  right.appendChild(clearAll);
+  bar.appendChild(left);
+  bar.appendChild(right);
   el.appendChild(bar);
 
   list.forEach((tg) => {
     const row = document.createElement("div");
     row.className = "target-row" + (tg.key === t.active ? " active" : "");
 
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = selectedKeys.has(tg.key);
+    cb.onchange = () => {
+      if (cb.checked) selectedKeys.add(tg.key);
+      else selectedKeys.delete(tg.key);
+      renderTargetList(t);
+    };
+
     const info = document.createElement("span");
+    info.className = "mmain";
     info.innerHTML =
       `<b>${tg.name}</b> <span class="muted">${tg.resign_date || ""}</span>` +
       ` &nbsp;<span class="tag">${progressText(tg.sites || {})}</span>`;
@@ -160,6 +223,7 @@ function renderTargetList(t) {
     actions.appendChild(selBtn);
     actions.appendChild(resetBtn);
     actions.appendChild(delBtn);
+    row.appendChild(cb);
     row.appendChild(info);
     row.appendChild(actions);
     el.appendChild(row);
@@ -180,16 +244,18 @@ function renderChecklist(t) {
   titleEl.textContent = `처리 중: ${active.name} · 퇴사일 ${active.resign_date}`;
   listEl.innerHTML = "";
 
+  const enabled = new Set(enabledSites || scenarios.map((s) => s.id));
+
   scenarios.forEach((s, i) => {
     const site = active.sites[s.id] || { status: "pending", message: "" };
     const row = document.createElement("div");
-    row.className = "site";
+    row.className = "site" + (enabled.has(s.id) ? "" : " off");
 
     const isApi = s.kind === "api";
-    const canOpen = !isApi && ["pending", "error"].includes(site.status);
+    const canOpen = !isApi && ["pending", "error", "blocked"].includes(site.status);
     const canRun = isApi
-      ? ["pending", "error"].includes(site.status)
-      : ["in_progress", "awaiting", "error"].includes(site.status);
+      ? ["pending", "error", "blocked"].includes(site.status)
+      : ["in_progress", "awaiting", "error", "blocked"].includes(site.status);
 
     row.innerHTML = `
       <div class="idx">${i + 1}</div>
@@ -201,6 +267,26 @@ function renderChecklist(t) {
         <div class="msg">${site.message || ""}</div>
       </div>
       <div class="actions"></div>`;
+
+    // 포함/제외 토글 (제외하면 순차 처리에서 빠짐)
+    const inc = document.createElement("label");
+    inc.className = "inc";
+    const incCb = document.createElement("input");
+    incCb.type = "checkbox";
+    incCb.checked = enabled.has(s.id);
+    incCb.title = "순차 처리에 포함";
+    incCb.onchange = async () => {
+      if (incCb.checked) enabled.add(s.id);
+      else enabled.delete(s.id);
+      try {
+        await api("/api/sites/enabled", "POST", { ids: [...enabled] });
+        await refresh();
+      } catch (e) {
+        alert(e.message);
+      }
+    };
+    inc.appendChild(incCb);
+    row.insertBefore(inc, row.firstChild);
 
     const actions = row.querySelector(".actions");
     if (!isApi) {
@@ -275,6 +361,26 @@ async function run(fn) {
     alert(e.message);
   }
   await refresh();
+}
+
+// 순차 처리 실행(keys 없으면 전체). run-all 버튼과 '선택 순차 처리'가 공용으로 쓴다.
+async function runAllWith(keys) {
+  const b = document.getElementById("runAllBtn");
+  const who = keys && keys.length ? `${keys.length}명` : "전체";
+  const msg =
+    `${who} 대상을 순서대로 처리합니다.\n` +
+    "먼저 [열기]로 브라우저를 열고 로그인해 두어야 합니다.\n계속할까요?";
+  if (!confirm(msg)) return;
+  await busy(b, "처리 중…", async () => {
+    try {
+      const r = await api("/api/run-all", "POST", keys ? { keys } : {});
+      await refresh();
+      if (r && r.message) alert(r.message);
+    } catch (e) {
+      alert(e.message);
+      await refresh();
+    }
+  });
 }
 
 // ----- 입력 핸들러 -----
@@ -379,9 +485,15 @@ document.getElementById("mailListBtn").onclick = (e) =>
     showModal("읽은 메일 목록 (받은편지함)", wrap);
   });
 
-document.getElementById("mailBtn").onclick = async () => {
-  try {
-    const r = await api("/api/mail/import", "POST");
+document.getElementById("mailBtn").onclick = (e) =>
+  busy(e.target, "메일 읽는 중…", async () => {
+    let r;
+    try {
+      r = await api("/api/mail/import", "POST");
+    } catch (err) {
+      alert(err.message);
+      return;
+    }
     await refresh();
     // 중복(이미 목록에 있는 사람)은 한 명씩 물어본다.
     for (const d of r.duplicates || []) {
@@ -391,38 +503,19 @@ document.getElementById("mailBtn").onclick = async () => {
       );
       if (ok) {
         try {
-          await api("/api/target", "POST", {
-            name: d.name,
-            resign_date: d.resign_date,
-          });
-        } catch (e) {
-          alert(e.message);
+          await api("/api/target", "POST", { name: d.name, resign_date: d.resign_date });
+        } catch (err) {
+          alert(err.message);
         }
       }
     }
     await refresh();
     if (r && r.message) alert(r.message);
-  } catch (e) {
-    alert(e.message);
-  }
-};
+  });
 
 document.getElementById("historyBtn").onclick = toggleHistory;
 
-document.getElementById("runAllBtn").onclick = async () => {
-  const msg =
-    "목록의 모든 대상자를 순서대로 처리합니다.\n" +
-    "먼저 [열기]로 브라우저를 열고 로그인해 두어야 합니다.\n계속할까요?";
-  if (!confirm(msg)) return;
-  try {
-    const r = await api("/api/run-all", "POST");
-    await refresh();
-    if (r && r.message) alert(r.message);
-  } catch (e) {
-    alert(e.message);
-    await refresh();
-  }
-};
+document.getElementById("runAllBtn").onclick = () => runAllWith(null);
 
 document.getElementById("testMode").onchange = (e) => {
   api("/api/testmode", "POST", { on: e.target.checked }).catch((err) =>
@@ -430,4 +523,4 @@ document.getElementById("testMode").onchange = (e) => {
   );
 };
 
-refresh();
+refresh().then(autoImport);
