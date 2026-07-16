@@ -143,6 +143,7 @@ button { white-space: nowrap; }
 .target-row input[type=checkbox] { width: auto; flex: none; cursor: pointer; }
 .target-row .mmain { flex: 1; min-width: 0; }
 .site.off { opacity: .5; }
+.site.demo { opacity: .55; border-style: dashed; background: #fafbfc; }
 .site .inc { display: flex; align-items: center; }
 .site .inc input { width: auto; }
 .tag { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }

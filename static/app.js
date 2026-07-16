@@ -38,15 +38,15 @@ async function refresh() {
 async function autoImport() {
   if (autoImportTried) return;
   autoImportTried = true;
+  let r;
   try {
-    const r = await api("/api/mail/auto-import", "POST");
-    if (r && r.message) {
-      await refresh();
-      notice("🔔 메일에서 자동으로 불러왔습니다", r.message);
-    }
+    r = await api("/api/mail/auto-start", "POST");
   } catch (e) {
-    /* 미설정/오류는 조용히 */
+    return; // 미설정/오류는 조용히
   }
+  if (!r || !r.started) return; // 설정 안 됐거나 이미 함
+  // 백그라운드 작업이 시작됐으니, 수동 때와 똑같이 진행바를 띄우고 폴링한다.
+  await pollMailJob("import", { auto: true });
 }
 
 async function toggleHistory() {
@@ -226,6 +226,41 @@ function renderTargetList(t) {
   });
 }
 
+// 대상자가 없을 때 '대상 시스템' 패널이 휑하지 않게 미리보기(데모) 4건을 보여준다.
+function renderChecklistPreview(listEl) {
+  listEl.innerHTML = "";
+  // 실제 등록된 사이트를 우선 보여주고, 4건이 안 되면 데모로 채운다.
+  const demo = [
+    { name: "더존 그룹웨어", kind: "browser" },
+    { name: "Accio", kind: "browser" },
+    { name: "VPN", kind: "browser" },
+    { name: "M365 (직접 처리)", kind: "api" },
+    { name: "업무 사이트", kind: "browser" },
+  ];
+  const rows = (scenarios && scenarios.length ? scenarios.slice() : []).map((s) => ({
+    name: s.name,
+    kind: s.kind,
+  }));
+  for (const d of demo) {
+    if (rows.length >= 4) break;
+    if (!rows.some((r) => r.name === d.name)) rows.push(d);
+  }
+  rows.slice(0, 4).forEach((s, i) => {
+    const row = document.createElement("div");
+    row.className = "site demo";
+    row.innerHTML = `
+      <div class="idx">${i + 1}</div>
+      <div class="body">
+        <div class="title">${s.name}
+          <span class="tag">${s.kind === "api" ? "API" : "브라우저"}</span>
+          <span class="badge pending">미리보기</span>
+        </div>
+        <div class="msg">대상자를 선택하면 [열기]·[자동 처리]·[완료]가 여기 표시돼요.</div>
+      </div>`;
+    listEl.appendChild(row);
+  });
+}
+
 // ----- 활성 대상자의 사이트 체크리스트 -----
 function renderChecklist(t) {
   const titleEl = document.getElementById("activeTitle");
@@ -233,8 +268,8 @@ function renderChecklist(t) {
   const active = (t.targets || []).find((x) => x.key === t.active);
 
   if (!active) {
-    titleEl.textContent = "대상자를 선택하면 시스템별 처리가 여기 표시돼요.";
-    listEl.innerHTML = "";
+    titleEl.textContent = "대상자를 선택하면 여기서 처리해요. (아래는 미리보기)";
+    renderChecklistPreview(listEl);
     return;
   }
   titleEl.textContent = `처리 중: ${active.name} · 퇴사일 ${active.resign_date}`;
@@ -610,16 +645,16 @@ function buildProgress(labelText) {
 // ----- 메일 읽기(백그라운드) + 진행상황 폴링 -----
 let mailPollTimer = null;
 
-async function runMailJob(kind) {
+function closeMainModal() {
+  document.getElementById("modal").style.display = "none";
+}
+
+// 진행바 모달을 띄우고 /api/mail/progress 를 폴링한다. (작업은 이미 시작돼 있어야 함)
+async function pollMailJob(kind, opts) {
+  opts = opts || {};
   if (mailPollTimer) {
     clearTimeout(mailPollTimer);
     mailPollTimer = null;
-  }
-  try {
-    await api("/api/mail/start", "POST", { kind });
-  } catch (e) {
-    notice("메일 읽기", e.message);
-    return;
   }
   const title = kind === "list" ? "읽은 메일 불러오는 중…" : "메일에서 퇴사자 찾는 중…";
   const p = buildProgress("받은편지함을 읽는 중입니다…");
@@ -637,13 +672,14 @@ async function runMailJob(kind) {
     p.bar.style.width = pct + "%";
     p.pctLab.textContent = pct + "%" + (s.fetched ? ` · ${s.fetched}건 읽음` : "");
     if (!s.running && s.error) {
-      notice("메일 읽기 오류", s.error);
+      if (opts.auto) closeMainModal();
+      else notice("메일 읽기 오류", s.error);
       return;
     }
     if (!s.running && s.result !== null) {
       p.bar.style.width = "100%";
       p.pctLab.textContent = "100% · 완료";
-      await finishMailJob(kind, s.result);
+      await finishMailJob(kind, s.result, opts);
       return;
     }
     mailPollTimer = setTimeout(tick, 400);
@@ -651,7 +687,18 @@ async function runMailJob(kind) {
   tick();
 }
 
-async function finishMailJob(kind, result) {
+async function runMailJob(kind) {
+  try {
+    await api("/api/mail/start", "POST", { kind });
+  } catch (e) {
+    notice("메일 읽기", e.message);
+    return;
+  }
+  await pollMailJob(kind, {});
+}
+
+async function finishMailJob(kind, result, opts) {
+  opts = opts || {};
   if (kind === "list") {
     showModal("읽은 메일 목록 (받은편지함)", buildMailListNode(result.messages || []));
     return;
@@ -659,14 +706,20 @@ async function finishMailJob(kind, result) {
   // import
   await refresh();
   const dups = result.duplicates || [];
+  const added = result.added || [];
   if (dups.length) {
     showDuplicatesModal(dups, result.message);
-  } else {
-    notice(
-      "메일에서 퇴사자 가져오기",
-      result.message || "새로 등록된 퇴사자가 없습니다."
-    );
+    return;
   }
+  // 자동 불러오기인데 새로 등록된 게 없으면 조용히 닫는다(방해 X).
+  if (opts.auto && added.length === 0) {
+    closeMainModal();
+    return;
+  }
+  notice(
+    opts.auto ? "🔔 메일에서 자동으로 불러왔습니다" : "메일에서 퇴사자 가져오기",
+    result.message || "새로 등록된 퇴사자가 없습니다."
+  );
 }
 
 document.getElementById("mailListBtn").onclick = () => runMailJob("list");

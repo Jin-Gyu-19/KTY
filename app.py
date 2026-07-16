@@ -152,10 +152,28 @@ def _do_mail_import(progress=None) -> dict:
     }
 
 
-def _run_mail_import():
-    """메일에서 퇴사자를 읽어 대상자로 등록한다. (added, duplicates) 반환(자동용)."""
-    r = _do_mail_import()
-    return r["added"], r["duplicates"]
+def _start_mail_job(kind: str) -> bool:
+    """메일 읽기 백그라운드 작업을 시작한다. 이미 돌고 있으면 False."""
+    with _MAIL_LOCK:
+        if _MAIL_JOB["running"]:
+            return False
+        _MAIL_JOB.update(
+            running=True, phase="reading", fetched=0, cap=0,
+            kind=kind, result=None, error=None,
+        )
+    threading.Thread(target=_mail_worker, args=(kind,), daemon=True).start()
+    return True
+
+
+def _mail_configured() -> bool:
+    """M365 메일 조회에 필요한 설정이 갖춰졌는지."""
+    from automation.integrations.graph import GraphClient
+
+    mailbox, *_ = _mail_env()
+    try:
+        return bool(GraphClient().configured() and mailbox)
+    except Exception:
+        return False
 
 
 def _mail_progress(fetched: int, cap: int) -> None:
@@ -227,21 +245,21 @@ def api_sites_enabled():
     return jsonify({"enabled_sites": sorted(_ENABLED_SITES)})
 
 
-@app.post("/api/mail/auto-import")
-def api_mail_auto_import():
-    """앱 시작 후 1회 자동 메일 가져오기(설정 안 됐으면 조용히 넘어감)."""
+@app.post("/api/mail/auto-start")
+def api_mail_auto_start():
+    """앱 시작 후 1회, 백그라운드로 자동 메일 가져오기를 시작한다.
+
+    설정 안 됐거나 이미 한 번 했으면 skip. 시작하면 클라이언트가
+    /api/mail/progress 로 진행바를 띄우고 결과를 받는다.
+    """
     if _AUTO_IMPORTED["done"]:
-        return jsonify({"skipped": True, "added": []})
+        return jsonify({"skip": True, "reason": "already"})
+    if not _mail_configured():
+        _AUTO_IMPORTED["done"] = True
+        return jsonify({"skip": True, "reason": "not_configured"})
     _AUTO_IMPORTED["done"] = True
-    try:
-        added, duplicates = _run_mail_import()
-    except Exception:
-        return jsonify({"skipped": True, "added": []})  # 미설정/오류는 조용히
-    names = ", ".join(f"{t['name']}({t['resign_date']})" for t in added[:8])
-    msg = f"메일에서 퇴사자 {len(added)}명을 자동으로 불러왔습니다: {names}" if added else ""
-    return jsonify(
-        {"targets": state.snapshot(), "added": added, "duplicates": duplicates, "message": msg}
-    )
+    _start_mail_job("import")
+    return jsonify({"started": True})
 
 
 @app.post("/api/testmode")
@@ -310,14 +328,8 @@ def api_mail_start():
     kind = (request.get_json(force=True, silent=True) or {}).get("kind") or "import"
     if kind not in ("import", "list"):
         kind = "import"
-    with _MAIL_LOCK:
-        if _MAIL_JOB["running"]:
-            return jsonify({"running": True, "already": True, "kind": _MAIL_JOB["kind"]})
-        _MAIL_JOB.update(
-            running=True, phase="reading", fetched=0, cap=0,
-            kind=kind, result=None, error=None,
-        )
-    threading.Thread(target=_mail_worker, args=(kind,), daemon=True).start()
+    if not _start_mail_job(kind):
+        return jsonify({"running": True, "already": True, "kind": _MAIL_JOB["kind"]})
     return jsonify({"started": True, "kind": kind})
 
 
