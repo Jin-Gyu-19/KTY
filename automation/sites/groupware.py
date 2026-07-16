@@ -183,6 +183,9 @@ class GroupwareScenario(SiteScenario):
         되면 즉시 반환하고, 안 되면 빨리 실패하도록 타임아웃을 짧게 잡는다.
         (성공은 보통 ~5초, 실패는 ~10초 안에 판별)
         """
+        # 로그인이 진행 중이면(수동/자동 모두) 끝날 때까지 잠깐 기다린다.
+        self._wait_login_done(page, 6000)
+
         # 0) 이미 사원정보관리가 떠 있으면 그대로 사용
         if self._search_ready(page, 1200):
             return True
@@ -419,9 +422,23 @@ class GroupwareScenario(SiteScenario):
             if not clicked:
                 pw.press("Enter")
             page.wait_for_load_state("domcontentloaded")
-            page.wait_for_timeout(1500)
+            self._wait_login_done(page)
         except Exception:
             pass
+
+    def _wait_login_done(self, page, max_ms: int = 12000) -> None:
+        """로그인이 실제로 끝날 때까지(로그인 화면을 벗어날 때까지) 기다린다.
+
+        로그인이 느려도 다음 단계로 성급히 넘어가지 않도록, 보이는 비밀번호칸이
+        사라질 때까지 폴링한다.
+        """
+        for _ in range(max(1, max_ms // 500)):
+            try:
+                if page.locator("input[type=password]:visible").count() == 0:
+                    return
+            except Exception:
+                return
+            page.wait_for_timeout(500)
 
     def _run_inner(self, page, employee: Employee) -> StepResult:
         # ----- 0) 이전 사람 퇴사처리 팝업이 남아있으면 닫는다 -----
