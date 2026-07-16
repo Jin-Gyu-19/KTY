@@ -140,3 +140,20 @@ class GraphClient:
         )
         r.raise_for_status()
         return r.json().get("value", [])
+
+    def search_messages(self, mailbox: str, search_term: str, top: int = 50) -> list[dict]:
+        """메일함 전체에서 검색어로 메일을 찾는다($search, 폴더 깊이 무관)."""
+        import requests
+
+        r = requests.get(
+            f"{GRAPH}/users/{mailbox}/messages",
+            headers=self._headers(),
+            params={
+                "$search": f'"{search_term}"',
+                "$top": top,
+                "$select": "subject,receivedDateTime,from,bodyPreview,body",
+            },
+            timeout=30,
+        )
+        r.raise_for_status()
+        return r.json().get("value", [])

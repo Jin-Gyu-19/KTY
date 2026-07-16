@@ -146,12 +146,22 @@ def import_from_mail(
         cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
         since_iso = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    messages = client.list_recent_messages(mailbox, top=top, since_iso=since_iso)
+    # 키워드가 있으면 메일함 전체를 '검색'해서 가져온다(최근 100건 한계 회피).
+    # 없으면 최근 메일을 기간 필터로 가져온다.
+    if keywords:
+        term = " OR ".join(keywords)
+        messages = client.search_messages(mailbox, term, top=top)
+    else:
+        messages = client.list_recent_messages(mailbox, top=top, since_iso=since_iso)
+
     found: list[dict] = []
     seen = set()
     subject_matched = 0
     matched_no_parse = []  # 제목은 맞았는데 파싱 실패한 메일 제목(진단용)
     for m in messages:
+        # 검색은 기간 필터가 없으므로 여기서 최근 N일로 거른다.
+        if since_iso and (m.get("receivedDateTime", "") or "") < since_iso:
+            continue
         subject = m.get("subject", "") or ""
         if keywords and not any(k in subject for k in keywords):
             continue
