@@ -18,10 +18,13 @@
 from __future__ import annotations
 
 # .env 를 먼저 읽어야 M365_*, BROWSER_CDP_URL 등이 반영된다.
+# 실행 위치와 무관하게 app.py 옆의 .env 를 확실히 읽는다.
 try:
+    import os as _os
+
     from dotenv import load_dotenv
 
-    load_dotenv()
+    load_dotenv(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".env"))
 except Exception:
     pass
 
