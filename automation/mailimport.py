@@ -52,33 +52,38 @@ def parse_resignation(text: str) -> dict | None:
         "퇴직", "대상", "직원", "사원", "귀하", "참조", "수신",
     }
 
-    # 이름: 먼저 '이름/성명/성함/직원명' 라벨을 우선 찾는다.
+    # 이름: 한글 2~4자 + (동명이인 구분용) 뒤 숫자 유지. 예: 홍길동, 홍길동2
     name = None
     m_strong = re.search(
-        r"(?:이\s*름|성\s*명|성\s*함|직원명)\s*[:：]?\s*([가-힣]{2,4})", text
+        r"(?:이\s*름|성\s*명|성\s*함|직원명)\s*[:：]?\s*([가-힣]{2,4}\d*)", text
     )
     if m_strong:
         name = m_strong.group(1)
     if not name:
         # '대상자/퇴사자' 뒤 이름. (?![가-힣]) 로 더 긴 단어의 일부(안내드립…)는 제외
-        for m in re.finditer(r"(?:대상자|퇴사자)\s*[:：]?\s*([가-힣]{2,4})(?![가-힣])", text):
-            if m.group(1) not in _stop:
+        for m in re.finditer(
+            r"(?:대상자|퇴사자)\s*[:：]?\s*([가-힣]{2,4}\d*)(?![가-힣])", text
+        ):
+            # 숫자 뗀 순수 한글 부분이 제목성 단어면 제외
+            base = re.match(r"([가-힣]+)", m.group(1)).group(1)
+            if base not in _stop:
                 name = m.group(1)
                 break
 
-    # 라벨이 전혀 없는 형식: 이름만 있는 줄(한글 2~4자, 뒤에 숫자/공백 허용)을 이름으로 본다.
+    # 라벨이 전혀 없는 형식: 이름만 있는 줄(한글 2~4자 + 뒤 숫자)을 이름으로 본다.
     lines = [ln.strip() for ln in text.splitlines()]
     if not name:
         for i, s in enumerate(lines):
-            m = re.fullmatch(r"([가-힣]{2,4})[\d\s]*", s)
-            if m and m.group(1) not in _stop:
-                name = m.group(1)
-                # 바로 다음 줄이 부서일 수 있음(퇴사/날짜가 아니면)
-                if i + 1 < len(lines):
-                    nxt = lines[i + 1]
-                    if nxt and "퇴사" not in nxt and not re.search(r"20\d{2}", nxt):
-                        dept = dept or nxt
-                break
+            m = re.fullmatch(r"([가-힣]{2,4}\d*)", s)
+            if m:
+                base = re.match(r"([가-힣]+)", m.group(1)).group(1)
+                if base not in _stop:
+                    name = m.group(1)
+                    if i + 1 < len(lines):
+                        nxt = lines[i + 1]
+                        if nxt and "퇴사" not in nxt and not re.search(r"20\d{2}", nxt):
+                            dept = dept or nxt
+                    break
 
     # 부서(선택)
     dept = None
