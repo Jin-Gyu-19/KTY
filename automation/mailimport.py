@@ -128,21 +128,28 @@ def parse_resignation(text: str) -> dict | None:
     return None
 
 
-def debug_list(
+def _scan(
     mailbox: str,
-    subject_keyword: str | None = "퇴사",
-    sender: str | None = None,
-    since_days: int = 30,
-    top: int = 100,
-) -> list[dict]:
-    """받은편지함 최근 메일을 각 메일별 판정 결과와 함께 돌려준다(진단/확인용)."""
+    subject_keyword: str | None,
+    sender: str | None,
+    since_days: int,
+    top: int,
+) -> tuple[list[dict], list[str]]:
+    """받은편지함을 훑어 메일별 판정 결과 행 리스트를 만든다(단일 로직).
+
+    debug_list(모달)와 import_from_mail(등록)이 '똑같이' 이걸 쓰므로 결과가 안 갈린다.
+    """
     client = GraphClient()
     if not client.configured():
-        raise RuntimeError("M365 환경변수가 설정되지 않았습니다.")
+        raise RuntimeError(
+            "M365 환경변수(M365_TENANT_ID/CLIENT_ID/CLIENT_SECRET)가 설정되지 않았습니다."
+        )
     if not mailbox:
-        raise RuntimeError("읽을 메일함(M365_MAILBOX)이 설정되지 않았습니다.")
+        raise RuntimeError("읽을 메일함(M365_MAILBOX)이 .env 에 설정되지 않았습니다.")
 
     keywords = [k.strip() for k in (subject_keyword or "").split(",") if k.strip()]
+    sender_l = (sender or "").strip().lower() or None
+
     since_iso = None
     if since_days and since_days > 0:
         from datetime import datetime, timedelta, timezone
@@ -157,27 +164,48 @@ def debug_list(
         recv = m.get("receivedDateTime", "") or ""
         addr = (m.get("from") or {}).get("emailAddress") or {}
         frm = addr.get("name") or addr.get("address") or ""
+        hay = f"{addr.get('name', '')} {addr.get('address', '')}".lower()
+
         in_window = (not since_iso) or (recv >= since_iso)
-        subj_match = (not keywords) or any(k in subj for k in keywords)
-        parsed = None
-        if in_window and subj_match:
+        subject_match = (not keywords) or any(k in subj for k in keywords)
+        sender_match = (not sender_l) or (sender_l in hay)
+
+        name = date = None
+        if in_window and subject_match and sender_match:
             body = m.get("body") or {}
             if (body.get("contentType") or "").lower() == "html":
                 bt = _strip_html(body.get("content", ""))
             else:
                 bt = body.get("content", "") or m.get("bodyPreview", "")
             p = parse_resignation(subj + "\n" + bt)
-            parsed = f"{p['name']} / {p['resign_date']}" if p else None
+            if p:
+                name, date = p["name"], p["resign_date"]
+
         rows.append(
             {
                 "subject": subj,
                 "sender": frm,
                 "received": recv[:16].replace("T", " "),
                 "in_window": in_window,
-                "subject_match": subj_match,
-                "parsed": parsed,
+                "subject_match": subject_match,
+                "sender_match": sender_match,
+                "name": name,
+                "resign_date": date,
+                "parsed": f"{name} / {date}" if name else None,
             }
         )
+    return rows, keywords
+
+
+def debug_list(
+    mailbox: str,
+    subject_keyword: str | None = "퇴사",
+    sender: str | None = None,
+    since_days: int = 30,
+    top: int = 100,
+) -> list[dict]:
+    """받은편지함 최근 메일을 각 메일별 판정 결과와 함께 돌려준다(진단/확인용)."""
+    rows, _ = _scan(mailbox, subject_keyword, sender, since_days, top)
     return rows
 
 
@@ -187,77 +215,34 @@ def import_from_mail(
     sender: str | None = None,
     since_days: int = 30,
     top: int = 100,
-) -> list[dict]:
-    """메일함을 훑어 조건에 맞는 퇴사 공지에서 퇴사자 목록을 만든다.
-
-    since_days: 최근 며칠 이내 받은 메일만 본다(기본 30일).
-    """
-    client = GraphClient()
-    if not client.configured():
-        raise RuntimeError(
-            "M365 환경변수(M365_TENANT_ID/CLIENT_ID/CLIENT_SECRET)가 설정되지 않았습니다."
-        )
-    if not mailbox:
-        raise RuntimeError("읽을 메일함(M365_MAILBOX)이 .env 에 설정되지 않았습니다.")
-
-    # 제목 키워드는 쉼표로 여러 개 지정 가능(하나라도 들어있으면 대상). 예: "퇴사,퇴직"
-    keywords = [k.strip() for k in (subject_keyword or "").split(",") if k.strip()]
-
-    # 최근 N일 이내 메일만 (기간 제한)
-    since_iso = None
-    if since_days and since_days > 0:
-        from datetime import datetime, timedelta, timezone
-
-        cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
-        since_iso = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    # 받은편지함 최근 메일을 가져와서 기간/제목은 파이썬으로 직접 거른다(가장 확실).
-    messages = client.list_recent_messages(mailbox, top=top)
+) -> tuple[list[dict], dict]:
+    """메일함을 훑어 조건에 맞는 퇴사 공지에서 퇴사자 목록을 만든다(모달과 동일 로직)."""
+    rows, keywords = _scan(mailbox, subject_keyword, sender, since_days, top)
 
     found: list[dict] = []
     seen = set()
-    subject_matched = 0
-    matched_no_parse = []  # 제목은 맞았는데 파싱 실패한 메일 제목(진단용)
-    for m in messages:
-        # 검색은 기간 필터가 없으므로 여기서 최근 N일로 거른다.
-        if since_iso and (m.get("receivedDateTime", "") or "") < since_iso:
+    for r in rows:
+        if not r["name"]:
             continue
-        subject = m.get("subject", "") or ""
-        if keywords and not any(k in subject for k in keywords):
-            continue
-        if sender:
-            addr = (m.get("from") or {}).get("emailAddress") or {}
-            hay = f"{addr.get('name', '')} {addr.get('address', '')}".lower()
-            if sender.lower() not in hay:
-                continue
+        key = f"{r['name']}|{r['resign_date']}"
+        if key not in seen:
+            seen.add(key)
+            found.append(
+                {
+                    "name": r["name"],
+                    "resign_date": r["resign_date"],
+                    "subject": r["subject"],
+                }
+            )
 
-        subject_matched += 1
-        body = m.get("body") or {}
-        if (body.get("contentType") or "").lower() == "html":
-            body_text = _strip_html(body.get("content", ""))
-        else:
-            body_text = body.get("content", "") or m.get("bodyPreview", "")
-
-        parsed = parse_resignation(subject + "\n" + body_text)
-        if parsed:
-            key = f"{parsed['name']}|{parsed['resign_date']}"
-            if key not in seen:
-                seen.add(key)
-                parsed["subject"] = subject
-                parsed["received"] = m.get("receivedDateTime", "")
-                found.append(parsed)
-        else:
-            matched_no_parse.append(subject[:40])
-
-    all_subjects = [(m.get("subject", "") or "") for m in messages]
+    matched = [r for r in rows if r["in_window"] and r["subject_match"] and r["sender_match"]]
     stats = {
-        "total": len(messages),
-        "subject_matched": subject_matched,
+        "total": len(rows),
+        "subject_matched": len(matched),
         "parsed": len(found),
-        "matched_no_parse": matched_no_parse[:5],
+        "matched_no_parse": [r["subject"][:40] for r in matched if not r["name"]][:5],
         "keywords": keywords,
-        "recent_subjects": [s[:40] for s in all_subjects[:15]],
-        # 키워드와 무관하게 '퇴' 글자가 든 제목(있으면 매칭 로직 문제일 가능성)
-        "subjects_with_toi": [s[:40] for s in all_subjects if "퇴" in s][:5],
+        "recent_subjects": [r["subject"][:40] for r in rows[:15]],
+        "subjects_with_toi": [r["subject"][:40] for r in rows if "퇴" in r["subject"]][:5],
     }
     return found, stats
