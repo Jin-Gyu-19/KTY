@@ -329,9 +329,17 @@ def api_run_all():
             if status == "error":
                 errors.append(f"{emp.name}·{s.name}")
 
-    msg = f"완료 — {processed}건 처리했습니다."
-    if errors:
-        msg += f" (오류/미완: {len(errors)}건 — {', '.join(errors[:5])}{' 외' if len(errors) > 5 else ''})"
+    # 사람별 결과를 그대로 보여준다(어디까지 됐는지 투명하게).
+    label = {"done": "완료", "awaiting": "완료대기", "error": "실패", "pending": "대기"}
+    final = state.snapshot()["targets"]
+    lines = []
+    for tg in final:
+        parts = []
+        for s in order:
+            st = tg["sites"].get(s.id, {}).get("status", "pending")
+            parts.append(f"{s.name}={label.get(st, st)}")
+        lines.append(f"· {tg['name']}: " + ", ".join(parts))
+    msg = f"순차 처리 종료 (총 {len(final)}명)\n" + "\n".join(lines)
     return jsonify({"targets": state.snapshot(), "message": msg})
 
 
