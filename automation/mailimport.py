@@ -62,9 +62,10 @@ def parse_resignation(text: str) -> dict | None:
 
     # 부서(선택)
     dept = None
-    mdpt = re.search(r"(?:부\s*서|소\s*속)\s*[:：]?\s*([^\n\r,/|]{1,20})", text)
+    mdpt = re.search(r"(?:부\s*서|소\s*속|팀)\s*[:：]?\s*([^\n\r,/|]{1,20})", text)
     if mdpt:
-        dept = mdpt.group(1).strip()
+        # '퇴사일 ...' 등 뒤 라벨이 붙어 길게 잡히면 잘라낸다
+        dept = re.split(r"\s*(?:퇴사|퇴직|최종|입사|성명|이름)", mdpt.group(1))[0].strip()
 
     # 퇴사일: '퇴사일/퇴직일/퇴사예정일/최종근무일' 근처 날짜 우선
     date = None
