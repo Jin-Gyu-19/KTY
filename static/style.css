@@ -119,7 +119,11 @@ button { white-space: nowrap; }
 }
 .bulk-bar .bulk-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .bulk-bar input[type=checkbox] { width: auto; margin-right: 4px; }
-.bulk-bar label.selall { display: inline-flex; align-items: center; cursor: pointer; }
+.bulk-bar label.selall {
+  display: inline-flex; flex-direction: row; align-items: center; gap: 6px;
+  cursor: pointer;
+}
+.bulk-bar label.selall input { margin: 0; }
 .target-row { cursor: pointer; }
 .target-row input[type=checkbox] { width: auto; flex: none; cursor: pointer; }
 .target-row .mmain { flex: 1; min-width: 0; }

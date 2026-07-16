@@ -191,18 +191,28 @@ function renderTargetList(t) {
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.checked = selectedKeys.has(tg.key);
-    cb.onchange = () => {
-      if (cb.checked) selectedKeys.add(tg.key);
-      else selectedKeys.delete(tg.key);
-      renderTargetList(t);
-    };
 
-    // 행(바) 아무 곳이나 클릭해도 체크가 토글되도록(버튼 클릭은 제외)
+    // 체크(선택)하면 그 사람을 '처리 중'으로 만들어 아래 체크리스트가 바뀐다.
+    async function toggleRow(on) {
+      if (on) {
+        selectedKeys.add(tg.key);
+        try {
+          await api("/api/target/active", "POST", { key: tg.key });
+        } catch (e) {
+          /* 무시 */
+        }
+        await refresh();
+      } else {
+        selectedKeys.delete(tg.key);
+        renderTargetList(t);
+      }
+    }
+    cb.onchange = () => toggleRow(cb.checked);
+
+    // 행(바) 아무 곳이나 클릭해도 체크가 토글되도록(버튼/체크박스 클릭은 제외)
     row.onclick = (e) => {
       if (e.target.closest("button") || e.target === cb) return;
-      if (selectedKeys.has(tg.key)) selectedKeys.delete(tg.key);
-      else selectedKeys.add(tg.key);
-      renderTargetList(t);
+      toggleRow(!selectedKeys.has(tg.key));
     };
 
     const info = document.createElement("span");
@@ -214,10 +224,6 @@ function renderTargetList(t) {
     const actions = document.createElement("span");
     actions.className = "target-actions";
 
-    const selBtn = btn(tg.key === t.active ? "선택됨" : "선택", "ghost");
-    selBtn.disabled = tg.key === t.active;
-    selBtn.onclick = () => run(() => api("/api/target/active", "POST", { key: tg.key }));
-
     const resetBtn = btn("초기화", "ghost");
     resetBtn.title = "이 사람의 진행 기록을 대기 상태로 되돌립니다";
     resetBtn.onclick = () => run(() => api("/api/target/reset", "POST", { key: tg.key }));
@@ -228,7 +234,6 @@ function renderTargetList(t) {
         run(() => api("/api/target/remove", "POST", { key: tg.key }));
     };
 
-    actions.appendChild(selBtn);
     actions.appendChild(resetBtn);
     actions.appendChild(delBtn);
     row.appendChild(cb);

@@ -160,6 +160,8 @@ class BrowserController:
                     "--disable-blink-features=AutomationControlled",
                 ],
                 ignore_default_args=["--enable-automation"],
+                # VPN 등 자체 서명 인증서(사설 IP) 사이트도 열 수 있게 한다.
+                ignore_https_errors=True,
             )
             self._attached = False
 

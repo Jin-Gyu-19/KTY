@@ -7,14 +7,23 @@ UI 체크리스트에 자동으로 나타난다. 순서 = 처리 순서.
 from __future__ import annotations
 
 from .sites.base import SiteScenario
+from .sites.generic import ManualBrowserScenario
 from .sites.groupware import GroupwareScenario
-from .sites.m365 import M365Scenario
 
-# 처리 순서대로 나열. 앞으로 업무사이트/VPN 등을 여기에 추가한다.
+# 처리 순서대로 나열. (M365 는 직접 처리하므로 제외)
 SCENARIOS: list[SiteScenario] = [
     GroupwareScenario(),
-    M365Scenario(),
-    # TODO: 업무사이트 A, 업무사이트 B, VPN 관리(FortiGate) ...
+    ManualBrowserScenario(
+        id="accio",
+        name="Accio (bdo.accio.kr)",
+        url="https://bdo.accio.kr/",
+    ),
+    ManualBrowserScenario(
+        id="vpn",
+        name="VPN (61.73.184.193)",
+        url="https://61.73.184.193/login?redir=%2F",
+        note="자체 서명 인증서 경고가 뜨면 [고급 → 계속 진행]으로 들어가면 돼.",
+    ),
 ]
 
 _BY_ID = {s.id: s for s in SCENARIOS}
