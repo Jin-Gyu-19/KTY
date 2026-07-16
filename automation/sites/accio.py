@@ -28,10 +28,10 @@ _DATA_DIR = os.path.join(
 # ─────────────────────────────────────────────────────────────────────────
 # 실제 화면 셀렉터 (F12 로 확인해서 채운다). 비어 있으면 자동화 안 함(수동 안내).
 # ─────────────────────────────────────────────────────────────────────────
-# 1) 로그인 페이지
-LOGIN_ID_INPUT = ""      # 예: "#userId" / "input[name='loginId']"
-LOGIN_PW_INPUT = ""      # 예: "#userPw" / "input[type='password']"
-LOGIN_BUTTON = ""        # 예: "#loginBtn" / "button:has-text('로그인')"
+# 1) 로그인 페이지 (Carbon/React SPA)
+LOGIN_ID_INPUT = "#carbon-text-input"                    # 아이디칸(type=email)
+LOGIN_PW_INPUT = "#password"                             # 비밀번호칸
+LOGIN_BUTTON = "button.mothership-login-view-login-button"  # '로그인' 기본 버튼(눈알 토글과 구분)
 
 # 2) 계정(사용자) 관리 화면
 USER_ADMIN_URL = ""      # 로그인 후 계정관리 목록의 주소(있으면 직접 이동)
@@ -58,8 +58,12 @@ class AccioScenario(SiteScenario):
     auto_submit = False
 
     # ── 아직 셀렉터가 안 채워졌는지 판단 ───────────────────────────────
+    def _login_configured(self) -> bool:
+        """로그인 자동입력에 필요한 셀렉터가 채워졌는지."""
+        return bool(LOGIN_PW_INPUT and LOGIN_BUTTON)
+
     def _configured(self) -> bool:
-        """자동화에 꼭 필요한 셀렉터가 모두 채워졌는지."""
+        """검색~삭제 자동화에 꼭 필요한 셀렉터가 모두 채워졌는지."""
         return all([SEARCH_INPUT, RESULT_ROW, DELETE_BUTTON])
 
     # ── 진단(그룹웨어와 동일한 방식) ──────────────────────────────────
@@ -167,20 +171,29 @@ class AccioScenario(SiteScenario):
             return StepResult(ok=False, message=f"처리 중 오류: {exc} ── 진단: {diag}")
 
     def _run_inner(self, page, employee: Employee) -> StepResult:
-        # 아직 셀렉터 미구현 → 자동화 시도하지 않고 수동 안내(안전)
+        # 1) 로그인 자동 입력 (검색/삭제가 아직이어도 로그인은 먼저 도와준다)
+        if self._login_configured():
+            self._auto_login(page)
+
+        # 아직 검색/삭제 셀렉터 미구현 → 그 이후는 사람이 직접(안전)
         if not self._configured():
+            logged = ""
+            if self._login_configured():
+                creds = getattr(self, "credentials", None)
+                logged = (
+                    "로그인은 저장된 정보로 자동입력했어(안 됐으면 직접 로그인). "
+                    if (creds and creds.get("username"))
+                    else ""
+                )
             return StepResult(
                 ok=True,
                 awaiting=True,
                 message=(
-                    f"'{self.name}' 자동화는 아직 준비 중이야. 열린 브라우저에서 "
-                    f"{employee.name}({employee.resign_date}) 계정을 직접 삭제한 뒤 "
-                    "[완료]를 눌러줘."
+                    f"{logged}'{self.name}' 계정삭제 자동화는 아직 준비 중이야. "
+                    f"열린 브라우저에서 {employee.name}({employee.resign_date}) 계정을 "
+                    "직접 삭제한 뒤 [완료]를 눌러줘."
                 ),
             )
-
-        # 1) 로그인 자동 입력
-        self._auto_login(page)
 
         # 2) 계정관리 화면으로 이동(주소를 알면 직접 이동)
         if USER_ADMIN_URL:
