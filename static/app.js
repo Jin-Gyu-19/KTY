@@ -28,10 +28,35 @@ async function refresh() {
   const data = await api("/api/status");
   scenarios = data.scenarios;
   enabledSites = data.enabled_sites || scenarios.map((s) => s.id);
+  renderMetrics(data.targets);
   renderTargetList(data.targets);
   renderChecklist(data.targets);
   const tm = document.getElementById("testMode");
   if (tm) tm.checked = !!data.test_mode;
+}
+
+// 상단 요약 타일: 대상자 / 처리 중 / 완료
+function renderMetrics(t) {
+  const el = document.getElementById("metrics");
+  if (!el) return;
+  const list = (t && t.targets) || [];
+  const ids = scenarios.map((s) => s.id);
+  let done = 0;
+  let running = 0;
+  list.forEach((tg) => {
+    const sites = tg.sites || {};
+    const statuses = ids.map((id) => (sites[id] || {}).status || "pending");
+    const allDone = ids.length > 0 && statuses.every((x) => x === "done");
+    const anyStarted = statuses.some((x) => x !== "pending");
+    if (allDone) done++;
+    else if (anyStarted) running++;
+  });
+  const tile = (k, v, cls) =>
+    `<div class="metric ${cls}"><div class="k">${k}</div><div class="v">${v}명</div></div>`;
+  el.innerHTML =
+    tile("대상자", list.length, "") +
+    tile("처리 중", running, "accent") +
+    tile("완료", done, "ok");
 }
 
 // 앱 시작 후 1회: 메일에서 퇴사자 자동 불러오기
