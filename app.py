@@ -290,6 +290,7 @@ def api_run_all():
     order = list(registry.all_scenarios())
     processed = 0
     errors = []
+    opened = set()  # 사이트별로 브라우저는 한 번만 연다(사람마다 재이동 방지)
     for tg in state.snapshot()["targets"]:
         emp = Employee(name=tg["name"], resign_date=tg["resign_date"])
         for s in order:
@@ -301,7 +302,9 @@ def api_run_all():
                 if s.kind == "api":
                     result = s.run_api(emp)
                 else:
-                    controller.open_site(s.url)  # 로그인된 브라우저 재사용
+                    if s.url not in opened:
+                        controller.open_site(s.url)  # 최초 1회만 (이후엔 바로 검색)
+                        opened.add(s.url)
                     result = controller.run_scenario(s, emp)
             except Exception as exc:  # noqa: BLE001
                 state.set_site(emp.name, emp.resign_date, s.id, "error", str(exc))

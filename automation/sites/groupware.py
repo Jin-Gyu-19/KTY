@@ -336,6 +336,27 @@ class GroupwareScenario(SiteScenario):
                 ok=False, message=f"처리 중 오류: {exc} ── 진단: {diag}"
             )
 
+    def _close_stale_popup(self, page) -> None:
+        """이전에 열어둔 퇴사처리 팝업(및 empResignPop 창)을 모두 닫는다."""
+        prev = getattr(self, "_resign_popup", None)
+        if prev is not None:
+            try:
+                if not prev.is_closed():
+                    prev.close()
+            except Exception:
+                pass
+            self._resign_popup = None
+        # 혹시 다른 경로로 열린 empResignPop 창도 정리
+        try:
+            for p in page.context.pages:
+                try:
+                    if p is not page and "empresignpop" in (p.url or "").lower():
+                        p.close()
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
     def _auto_login(self, page) -> None:
         """로그인 화면이면 자동 로그인한다.
 
@@ -394,6 +415,11 @@ class GroupwareScenario(SiteScenario):
             pass
 
     def _run_inner(self, page, employee: Employee) -> StepResult:
+        # ----- 0) 이전 사람 퇴사처리 팝업이 남아있으면 닫는다 -----
+        # (더존 팝업은 창 이름이 empResignPop 로 고정이라, 안 닫으면 다음 사람 때
+        #  같은 창을 재사용해 새 팝업이 안 뜨고 진행이 막힌다.)
+        self._close_stale_popup(page)
+
         # ----- 1) 로그인 화면이면 자동 로그인 (저장된 정보 있을 때) -----
         self._auto_login(page)
 
@@ -460,11 +486,21 @@ class GroupwareScenario(SiteScenario):
             )
 
         # ----- 5) 퇴사처리 클릭 → 팝업창 열림 -----
+        popup = None
         try:
-            with page.expect_popup(timeout=15000) as pop_info:
+            with page.expect_popup(timeout=12000) as pop_info:
                 frame.locator(RETIRE_BUTTON).click()
             popup = pop_info.value
         except Exception:
+            # 창 재사용 등으로 새 팝업 이벤트가 없을 때: 기존 empResignPop 창을 찾는다
+            for p in page.context.pages:
+                try:
+                    if p is not page and "empresignpop" in (p.url or "").lower():
+                        popup = p
+                        break
+                except Exception:
+                    continue
+        if popup is None:
             return StepResult(
                 ok=False,
                 message=(
