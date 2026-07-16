@@ -146,13 +146,8 @@ def import_from_mail(
         cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
         since_iso = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # 키워드가 있으면 메일함 전체를 '검색'해서 가져온다(최근 100건 한계 회피).
-    # 없으면 최근 메일을 기간 필터로 가져온다.
-    if keywords:
-        term = " OR ".join(keywords)
-        messages = client.search_messages(mailbox, term, top=top)
-    else:
-        messages = client.list_recent_messages(mailbox, top=top, since_iso=since_iso)
+    # 받은편지함 최근 메일을 가져와서 기간/제목은 파이썬으로 직접 거른다(가장 확실).
+    messages = client.list_recent_messages(mailbox, top=top)
 
     found: list[dict] = []
     seen = set()

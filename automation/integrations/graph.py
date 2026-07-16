@@ -116,26 +116,22 @@ class GraphClient:
         )
         r.raise_for_status()
 
-    def list_recent_messages(
-        self, mailbox: str, top: int = 100, since_iso: str | None = None
-    ) -> list[dict]:
-        """지정한 메일함의 최근 메일을 가져온다(Mail.Read 권한 필요).
+    def list_recent_messages(self, mailbox: str, top: int = 100) -> list[dict]:
+        """받은편지함의 최근 메일을 가져온다(Mail.Read 권한 필요).
 
-        since_iso 가 주어지면 그 시각 이후 받은 메일만 가져온다(예: 최근 1달).
+        /messages 는 모든 폴더가 섞이므로 받은편지함(inbox)만 콕 집어 읽는다.
+        기간·제목 필터는 호출부에서 파이썬으로 처리한다(가장 확실).
         """
         import requests
 
-        params = {
-            "$top": top,
-            "$select": "subject,receivedDateTime,from,bodyPreview,body",
-            "$orderby": "receivedDateTime desc",
-        }
-        if since_iso:
-            params["$filter"] = f"receivedDateTime ge {since_iso}"
         r = requests.get(
-            f"{GRAPH}/users/{mailbox}/messages",
+            f"{GRAPH}/users/{mailbox}/mailFolders/inbox/messages",
             headers=self._headers(),
-            params=params,
+            params={
+                "$top": top,
+                "$select": "subject,receivedDateTime,from,bodyPreview,body",
+                "$orderby": "receivedDateTime desc",
+            },
             timeout=30,
         )
         r.raise_for_status()
