@@ -24,15 +24,12 @@ async function api(path, method = "GET", body = null) {
 
 let scenarios = [];
 
-let restorePrompted = false;
-
 async function refresh() {
   const data = await api("/api/status");
   scenarios = data.scenarios;
   enabledSites = data.enabled_sites || scenarios.map((s) => s.id);
   renderTargetList(data.targets);
   renderChecklist(data.targets);
-  maybePromptRestore(data.restorable);
   const tm = document.getElementById("testMode");
   if (tm) tm.checked = !!data.test_mode;
 }
@@ -49,20 +46,6 @@ async function autoImport() {
     }
   } catch (e) {
     /* 미설정/오류는 조용히 */
-  }
-}
-
-// 앱을 열 때 이전 작업이 있으면 한 번 물어본다.
-function maybePromptRestore(r) {
-  if (restorePrompted || !r || !r.available) return;
-  restorePrompted = true;
-  const names = (r.names || []).slice(0, 5).join(", ");
-  const more = r.count > 5 ? " 외" : "";
-  const msg = `이전 작업내용이 있습니다 (${r.count}명: ${names}${more}).\n불러올까요?`;
-  if (confirm(msg)) {
-    api("/api/history/restore", "POST", {})
-      .then(refresh)
-      .catch((e) => alert(e.message));
   }
 }
 
@@ -250,7 +233,7 @@ function renderChecklist(t) {
   const active = (t.targets || []).find((x) => x.key === t.active);
 
   if (!active) {
-    titleEl.textContent = "";
+    titleEl.textContent = "대상자를 선택하면 시스템별 처리가 여기 표시돼요.";
     listEl.innerHTML = "";
     return;
   }

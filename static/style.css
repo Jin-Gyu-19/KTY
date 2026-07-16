@@ -16,8 +16,23 @@ body {
   background: var(--bg);
   color: var(--text);
 }
-main { max-width: 720px; margin: 32px auto; padding: 0 16px; }
+main { max-width: 1040px; margin: 32px auto; padding: 0 16px; }
 h1 { font-size: 22px; }
+
+/* 좌: 대상 시스템(고정), 우: 컨트롤 + 대상자 목록 */
+.layout {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+.left { position: sticky; top: 16px; }
+.section-sub { margin: 0 2px 10px; font-size: 12px; }
+@media (max-width: 820px) {
+  .layout { grid-template-columns: 1fr; }
+  .left { position: static; order: 2; }   /* 좁은 화면에선 아래로 */
+  .right { order: 1; }
+}
 .card {
   background: var(--card);
   border: 1px solid var(--line);
@@ -77,7 +92,7 @@ button:disabled { opacity: .5; cursor: default; }
 .site .body { flex: 1; }
 .site .title { font-weight: 600; }
 .site .msg { font-size: 12px; color: var(--muted); margin-top: 2px; }
-.site .actions { display: flex; gap: 8px; }
+.site .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .section-title { font-size: 15px; margin: 18px 0 8px; }
 .list-head {
